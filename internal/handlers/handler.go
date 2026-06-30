@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
-	"github.com/valyala/fasthttp"
+	"github.com/go-chi/chi"
 	"url-shortener-practicum-go/internal/storage"
 )
 
@@ -17,36 +19,36 @@ func New(repo storage.URLRepository, baseURL string) *Handler {
 	return &Handler{repo: repo, baseURL: baseURL}
 }
 
-func (h *Handler) ShortenURL(ctx *fasthttp.RequestCtx) {
-	body := strings.TrimSpace(string(ctx.PostBody()))
-	if body == "" {
-		ctx.Error("bad request", fasthttp.StatusBadRequest)
+func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil || len(strings.TrimSpace(string(body))) == 0 {
+		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 
-	id, err := h.repo.Save(body)
+	id, err := h.repo.Save(strings.TrimSpace(string(body)))
 	if err != nil {
-		ctx.Error("internal error", fasthttp.StatusBadRequest)
+		http.Error(w, "internal error", http.StatusBadRequest)
 		return
 	}
 
-	ctx.Response.Header.Set("Content-Type", "text/plain")
-	ctx.SetStatusCode(fasthttp.StatusCreated)
-	fmt.Fprintf(ctx, "%s/%s", h.baseURL, id)
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusCreated)
+	fmt.Fprintf(w, "%s/%s", h.baseURL, id)
 }
 
-func (h *Handler) Redirect(ctx *fasthttp.RequestCtx) {
-	id := strings.TrimPrefix(string(ctx.Path()), "/")
+func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
 	if id == "" {
-		ctx.Error("bad request", fasthttp.StatusBadRequest)
+		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 
 	originalURL, ok := h.repo.Get(id)
 	if !ok {
-		ctx.Error("not found", fasthttp.StatusBadRequest)
+		http.Error(w, "not found", http.StatusBadRequest)
 		return
 	}
 
-	ctx.Redirect(originalURL, fasthttp.StatusTemporaryRedirect)
+	http.Redirect(w, r, originalURL, http.StatusTemporaryRedirect)
 }

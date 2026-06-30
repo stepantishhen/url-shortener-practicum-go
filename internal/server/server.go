@@ -1,19 +1,13 @@
 package server
 
 import (
-	"github.com/valyala/fasthttp"
+	"github.com/go-chi/chi"
 	"url-shortener-practicum-go/internal/handlers"
 )
 
-func NewRequestHandler(h *handlers.Handler) fasthttp.RequestHandler {
-	return func(ctx *fasthttp.RequestCtx) {
-		switch {
-		case ctx.IsPost() && string(ctx.Path()) == "/":
-			h.ShortenURL(ctx)
-		case ctx.IsGet() && string(ctx.Path()) != "/":
-			h.Redirect(ctx)
-		default:
-			ctx.Error("bad request", fasthttp.StatusBadRequest)
-		}
-	}
+func NewRouter(h *handlers.Handler) *chi.Mux {
+	r := chi.NewRouter()
+	r.Post("/", h.ShortenURL)
+	r.Get("/{id}", h.Redirect)
+	return r
 }
