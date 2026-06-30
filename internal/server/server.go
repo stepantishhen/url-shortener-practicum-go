@@ -1,23 +1,19 @@
 package server
 
 import (
-	"net/http"
-
+	"github.com/valyala/fasthttp"
 	"url-shortener-practicum-go/internal/handlers"
 )
 
-// NewMux wires the handler methods to their routes.
-func NewMux(h *handlers.Handler) *http.ServeMux {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+func NewRequestHandler(h *handlers.Handler) fasthttp.RequestHandler {
+	return func(ctx *fasthttp.RequestCtx) {
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/":
-			h.ShortenURL(w, r)
-		case r.Method == http.MethodGet && r.URL.Path != "/":
-			h.Redirect(w, r)
+		case ctx.IsPost() && string(ctx.Path()) == "/":
+			h.ShortenURL(ctx)
+		case ctx.IsGet() && string(ctx.Path()) != "/":
+			h.Redirect(ctx)
 		default:
-			http.Error(w, "bad request", http.StatusBadRequest)
+			ctx.Error("bad request", fasthttp.StatusBadRequest)
 		}
-	})
-	return mux
+	}
 }

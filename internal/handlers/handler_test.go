@@ -1,22 +1,17 @@
 package handlers_test
 
 import (
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 
+	"github.com/valyala/fasthttp"
 	"url-shortener-practicum-go/internal/handlers"
 	"url-shortener-practicum-go/internal/storage"
 )
 
-// mockStorage is an in-test fake that implements storage.URLRepository.
 type mockStorage struct {
 	data map[string]string
 }
 
-// Compile-time check that mockStorage satisfies the interface.
 var _ storage.URLRepository = (*mockStorage)(nil)
 
 func newMockStorage() *mockStorage {
@@ -34,25 +29,32 @@ func (m *mockStorage) Get(id string) (string, bool) {
 	return url, ok
 }
 
-// ---- ShortenURL ----
+func newPOSTCtx(body string) *fasthttp.RequestCtx {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.Request.Header.SetMethod(fasthttp.MethodPost)
+	ctx.Request.SetRequestURI("/")
+	ctx.Request.SetBodyString(body)
+	return ctx
+}
+
+func newGETCtx(path string) *fasthttp.RequestCtx {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.Request.Header.SetMethod(fasthttp.MethodGet)
+	ctx.Request.SetRequestURI(path)
+	return ctx
+}
 
 func TestShortenURL_ValidBody(t *testing.T) {
 	h := handlers.New(newMockStorage(), "http://localhost:8080")
 
-	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("https://example.com"))
-	w := httptest.NewRecorder()
+	ctx := newPOSTCtx("https://example.com")
+	h.ShortenURL(ctx)
 
-	h.ShortenURL(w, r)
-
-	res := w.Result()
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusCreated {
-		t.Errorf("expected %d, got %d", http.StatusCreated, res.StatusCode)
+	if got := ctx.Response.StatusCode(); got != fasthttp.StatusCreated {
+		t.Errorf("expected status %d, got %d", fasthttp.StatusCreated, got)
 	}
 
-	body, _ := io.ReadAll(res.Body)
-	got := string(body)
+	got := string(ctx.Response.Body())
 	const want = "http://localhost:8080/testid12"
 	if got != want {
 		t.Errorf("expected body %q, got %q", want, got)
@@ -62,13 +64,11 @@ func TestShortenURL_ValidBody(t *testing.T) {
 func TestShortenURL_ContentType(t *testing.T) {
 	h := handlers.New(newMockStorage(), "http://localhost:8080")
 
-	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("https://example.com"))
-	w := httptest.NewRecorder()
+	ctx := newPOSTCtx("https://example.com")
+	h.ShortenURL(ctx)
 
-	h.ShortenURL(w, r)
-
-	ct := w.Result().Header.Get("Content-Type")
-	if !strings.HasPrefix(ct, "text/plain") {
+	ct := string(ctx.Response.Header.Peek("Content-Type"))
+	if ct != "text/plain" {
 		t.Errorf("expected Content-Type text/plain, got %q", ct)
 	}
 }
@@ -76,76 +76,62 @@ func TestShortenURL_ContentType(t *testing.T) {
 func TestShortenURL_EmptyBody(t *testing.T) {
 	h := handlers.New(newMockStorage(), "http://localhost:8080")
 
-	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(""))
-	w := httptest.NewRecorder()
+	ctx := newPOSTCtx("")
+	h.ShortenURL(ctx)
 
-	h.ShortenURL(w, r)
-
-	if w.Result().StatusCode != http.StatusBadRequest {
-		t.Errorf("expected %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+	if got := ctx.Response.StatusCode(); got != fasthttp.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", fasthttp.StatusBadRequest, got)
 	}
 }
 
 func TestShortenURL_WhitespaceOnlyBody(t *testing.T) {
 	h := handlers.New(newMockStorage(), "http://localhost:8080")
 
-	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("   \n  "))
-	w := httptest.NewRecorder()
+	ctx := newPOSTCtx("   \n  ")
+	h.ShortenURL(ctx)
 
-	h.ShortenURL(w, r)
-
-	if w.Result().StatusCode != http.StatusBadRequest {
-		t.Errorf("expected %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+	if got := ctx.Response.StatusCode(); got != fasthttp.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", fasthttp.StatusBadRequest, got)
 	}
 }
 
-// ---- Redirect ----
-
 func TestRedirect_KnownID(t *testing.T) {
+	const originalURL = "https://example.com/original"
 	store := newMockStorage()
-	store.data["testid12"] = "https://example.com"
+	store.data["testid12"] = originalURL
 	h := handlers.New(store, "http://localhost:8080")
 
-	r := httptest.NewRequest(http.MethodGet, "/testid12", nil)
-	w := httptest.NewRecorder()
+	ctx := newGETCtx("/testid12")
+	h.Redirect(ctx)
 
-	h.Redirect(w, r)
-
-	res := w.Result()
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusTemporaryRedirect {
-		t.Errorf("expected %d, got %d", http.StatusTemporaryRedirect, res.StatusCode)
+	if got := ctx.Response.StatusCode(); got != fasthttp.StatusTemporaryRedirect {
+		t.Errorf("expected status %d, got %d", fasthttp.StatusTemporaryRedirect, got)
 	}
 
-	location := res.Header.Get("Location")
-	if location != "https://example.com" {
-		t.Errorf("expected Location %q, got %q", "https://example.com", location)
+	location := string(ctx.Response.Header.Peek("Location"))
+	if location != originalURL {
+		t.Errorf("expected Location %q, got %q", originalURL, location)
 	}
 }
 
 func TestRedirect_UnknownID(t *testing.T) {
 	h := handlers.New(newMockStorage(), "http://localhost:8080")
 
-	r := httptest.NewRequest(http.MethodGet, "/doesnotexist", nil)
-	w := httptest.NewRecorder()
+	ctx := newGETCtx("/doesnotexist")
+	h.Redirect(ctx)
 
-	h.Redirect(w, r)
-
-	if w.Result().StatusCode != http.StatusBadRequest {
-		t.Errorf("expected %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+	if got := ctx.Response.StatusCode(); got != fasthttp.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", fasthttp.StatusBadRequest, got)
 	}
 }
 
 func TestRedirect_EmptyID(t *testing.T) {
 	h := handlers.New(newMockStorage(), "http://localhost:8080")
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	w := httptest.NewRecorder()
+	ctx := newGETCtx("/")
+	h.Redirect(ctx)
 
-	h.Redirect(w, r)
-
-	if w.Result().StatusCode != http.StatusBadRequest {
-		t.Errorf("expected %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+	if got := ctx.Response.StatusCode(); got != fasthttp.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", fasthttp.StatusBadRequest, got)
 	}
 }

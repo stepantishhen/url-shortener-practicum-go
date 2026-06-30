@@ -2,14 +2,12 @@ package handlers
 
 import (
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 
+	"github.com/valyala/fasthttp"
 	"url-shortener-practicum-go/internal/storage"
 )
 
-// Handler holds dependencies for HTTP request handlers.
 type Handler struct {
 	repo    storage.URLRepository
 	baseURL string
@@ -19,40 +17,36 @@ func New(repo storage.URLRepository, baseURL string) *Handler {
 	return &Handler{repo: repo, baseURL: baseURL}
 }
 
-// ShortenURL handles POST / — stores a URL and returns its short form.
-func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil || len(strings.TrimSpace(string(body))) == 0 {
-		http.Error(w, "bad request", http.StatusBadRequest)
+func (h *Handler) ShortenURL(ctx *fasthttp.RequestCtx) {
+	body := strings.TrimSpace(string(ctx.PostBody()))
+	if body == "" {
+		ctx.Error("bad request", fasthttp.StatusBadRequest)
 		return
 	}
 
-	originalURL := strings.TrimSpace(string(body))
-
-	id, err := h.repo.Save(originalURL)
+	id, err := h.repo.Save(body)
 	if err != nil {
-		http.Error(w, "internal error", http.StatusBadRequest)
+		ctx.Error("internal error", fasthttp.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "%s/%s", h.baseURL, id)
+	ctx.Response.Header.Set("Content-Type", "text/plain")
+	ctx.SetStatusCode(fasthttp.StatusCreated)
+	fmt.Fprintf(ctx, "%s/%s", h.baseURL, id)
 }
 
-// Redirect handles GET /{id} — redirects to the original URL.
-func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/")
+func (h *Handler) Redirect(ctx *fasthttp.RequestCtx) {
+	id := strings.TrimPrefix(string(ctx.Path()), "/")
 	if id == "" {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		ctx.Error("bad request", fasthttp.StatusBadRequest)
 		return
 	}
 
 	originalURL, ok := h.repo.Get(id)
 	if !ok {
-		http.Error(w, "not found", http.StatusBadRequest)
+		ctx.Error("not found", fasthttp.StatusBadRequest)
 		return
 	}
 
-	http.Redirect(w, r, originalURL, http.StatusTemporaryRedirect)
+	ctx.Redirect(originalURL, fasthttp.StatusTemporaryRedirect)
 }

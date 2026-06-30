@@ -1,8 +1,7 @@
 package main
 
 import (
-	"net/http"
-
+	"github.com/valyala/fasthttp"
 	"url-shortener-practicum-go/internal/handlers"
 	"url-shortener-practicum-go/internal/server"
 	"url-shortener-practicum-go/internal/storage"
@@ -11,6 +10,5 @@ import (
 func main() {
 	repo := storage.NewMemoryStorage()
 	h := handlers.New(repo, "http://localhost:8080")
-	mux := server.NewMux(h)
-	http.ListenAndServe(":8080", mux)
+	fasthttp.ListenAndServe(":8080", server.NewRequestHandler(h))
 }
