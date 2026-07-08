@@ -22,13 +22,14 @@ func New(repo storage.URLRepository, baseURL string) *Handler {
 func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil || len(strings.TrimSpace(string(body))) == 0 {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		http.Error(w, "bad request: empty or invalid body", http.StatusBadRequest)
 		return
 	}
 
-	id, err := h.repo.Save(strings.TrimSpace(string(body)))
+	originalURL := strings.TrimSpace(string(body))
+	id, err := h.repo.Save(originalURL)
 	if err != nil {
-		http.Error(w, "internal error", http.StatusBadRequest)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
@@ -40,13 +41,13 @@ func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		http.Error(w, "bad request: missing ID", http.StatusBadRequest)
 		return
 	}
 
 	originalURL, ok := h.repo.Get(id)
 	if !ok {
-		http.Error(w, "not found", http.StatusBadRequest)
+		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 

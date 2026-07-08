@@ -10,9 +10,8 @@ type Config struct {
 	BaseURL    string
 }
 
-func New() *Config {
-	cfg, _ := parse(os.Args[1:])
-	return cfg
+func New() (*Config, error) {
+	return parse(os.Args[1:])
 }
 
 func parse(args []string) (*Config, error) {
