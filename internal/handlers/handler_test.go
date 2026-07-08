@@ -127,8 +127,8 @@ func TestRedirect_UnknownID(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.Redirect(w, r)
 
-	if w.Result().StatusCode != http.StatusBadRequest {
-		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Errorf("expected status %d, got %d", http.StatusNotFound, w.Result().StatusCode)
 	}
 }
 
