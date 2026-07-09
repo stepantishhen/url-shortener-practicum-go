@@ -11,6 +11,5 @@ import (
 func main() {
 	repo := storage.NewMemoryStorage()
 	h := handlers.New(repo, "http://localhost:8080")
-	mux := server.NewMux(h)
-	http.ListenAndServe(":8080", mux)
+	http.ListenAndServe(":8080", server.NewRouter(h))
 }

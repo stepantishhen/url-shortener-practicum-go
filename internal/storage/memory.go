@@ -6,7 +6,6 @@ import (
 	"sync"
 )
 
-// MemoryStorage is an in-memory implementation of URLRepository.
 type MemoryStorage struct {
 	mu   sync.RWMutex
 	data map[string]string

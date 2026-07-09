@@ -1,22 +1,22 @@
 package handlers_test
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi"
 	"url-shortener-practicum-go/internal/handlers"
 	"url-shortener-practicum-go/internal/storage"
 )
 
-// mockStorage is an in-test fake that implements storage.URLRepository.
 type mockStorage struct {
 	data map[string]string
 }
 
-// Compile-time check that mockStorage satisfies the interface.
 var _ storage.URLRepository = (*mockStorage)(nil)
 
 func newMockStorage() *mockStorage {
@@ -34,27 +34,29 @@ func (m *mockStorage) Get(id string) (string, bool) {
 	return url, ok
 }
 
-// ---- ShortenURL ----
+func withURLParam(r *http.Request, key, value string) *http.Request {
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add(key, value)
+	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+}
 
 func TestShortenURL_ValidBody(t *testing.T) {
 	h := handlers.New(newMockStorage(), "http://localhost:8080")
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("https://example.com"))
 	w := httptest.NewRecorder()
-
 	h.ShortenURL(w, r)
 
 	res := w.Result()
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusCreated {
-		t.Errorf("expected %d, got %d", http.StatusCreated, res.StatusCode)
+		t.Errorf("expected status %d, got %d", http.StatusCreated, res.StatusCode)
 	}
 
 	body, _ := io.ReadAll(res.Body)
-	got := string(body)
 	const want = "http://localhost:8080/testid12"
-	if got != want {
+	if got := string(body); got != want {
 		t.Errorf("expected body %q, got %q", want, got)
 	}
 }
@@ -64,7 +66,6 @@ func TestShortenURL_ContentType(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("https://example.com"))
 	w := httptest.NewRecorder()
-
 	h.ShortenURL(w, r)
 
 	ct := w.Result().Header.Get("Content-Type")
@@ -78,11 +79,10 @@ func TestShortenURL_EmptyBody(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(""))
 	w := httptest.NewRecorder()
-
 	h.ShortenURL(w, r)
 
 	if w.Result().StatusCode != http.StatusBadRequest {
-		t.Errorf("expected %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
 	}
 }
 
@@ -91,36 +91,31 @@ func TestShortenURL_WhitespaceOnlyBody(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("   \n  "))
 	w := httptest.NewRecorder()
-
 	h.ShortenURL(w, r)
 
 	if w.Result().StatusCode != http.StatusBadRequest {
-		t.Errorf("expected %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
 	}
 }
 
-// ---- Redirect ----
-
 func TestRedirect_KnownID(t *testing.T) {
 	store := newMockStorage()
-	store.data["testid12"] = "https://example.com"
+	store.data["testid12"] = "https://example.com/original"
 	h := handlers.New(store, "http://localhost:8080")
 
 	r := httptest.NewRequest(http.MethodGet, "/testid12", nil)
+	r = withURLParam(r, "id", "testid12")
 	w := httptest.NewRecorder()
-
 	h.Redirect(w, r)
 
 	res := w.Result()
-	defer res.Body.Close()
-
 	if res.StatusCode != http.StatusTemporaryRedirect {
-		t.Errorf("expected %d, got %d", http.StatusTemporaryRedirect, res.StatusCode)
+		t.Errorf("expected status %d, got %d", http.StatusTemporaryRedirect, res.StatusCode)
 	}
 
 	location := res.Header.Get("Location")
-	if location != "https://example.com" {
-		t.Errorf("expected Location %q, got %q", "https://example.com", location)
+	if location != "https://example.com/original" {
+		t.Errorf("expected Location %q, got %q", "https://example.com/original", location)
 	}
 }
 
@@ -128,12 +123,12 @@ func TestRedirect_UnknownID(t *testing.T) {
 	h := handlers.New(newMockStorage(), "http://localhost:8080")
 
 	r := httptest.NewRequest(http.MethodGet, "/doesnotexist", nil)
+	r = withURLParam(r, "id", "doesnotexist")
 	w := httptest.NewRecorder()
-
 	h.Redirect(w, r)
 
 	if w.Result().StatusCode != http.StatusBadRequest {
-		t.Errorf("expected %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
 	}
 }
 
@@ -142,10 +137,9 @@ func TestRedirect_EmptyID(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
-
 	h.Redirect(w, r)
 
 	if w.Result().StatusCode != http.StatusBadRequest {
-		t.Errorf("expected %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
 	}
 }
