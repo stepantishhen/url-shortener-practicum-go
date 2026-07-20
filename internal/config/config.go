@@ -19,6 +19,14 @@ func parse(args []string) (*Config, error) {
 	fs := flag.NewFlagSet("shortener", flag.ContinueOnError)
 	fs.StringVar(&cfg.ServerAddr, "a", "localhost:8080", "HTTP server address")
 	fs.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "base URL for shortened URLs")
-	err := fs.Parse(args)
-	return cfg, err
+	if err := fs.Parse(args); err != nil {
+		return cfg, err
+	}
+	if v := os.Getenv("SERVER_ADDRESS"); v != "" {
+		cfg.ServerAddr = v
+	}
+	if v := os.Getenv("BASE_URL"); v != "" {
+		cfg.BaseURL = v
+	}
+	return cfg, nil
 }

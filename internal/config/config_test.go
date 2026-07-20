@@ -54,3 +54,36 @@ func TestUnknownFlagReturnsError(t *testing.T) {
 		t.Error("expected error for unknown flag, got nil")
 	}
 }
+
+func TestEnvServerAddress(t *testing.T) {
+	t.Setenv("SERVER_ADDRESS", "localhost:7777")
+	cfg, err := parse([]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ServerAddr != "localhost:7777" {
+		t.Errorf("expected ServerAddr %q, got %q", "localhost:7777", cfg.ServerAddr)
+	}
+}
+
+func TestEnvBaseURL(t *testing.T) {
+	t.Setenv("BASE_URL", "http://env.example.com")
+	cfg, err := parse([]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BaseURL != "http://env.example.com" {
+		t.Errorf("expected BaseURL %q, got %q", "http://env.example.com", cfg.BaseURL)
+	}
+}
+
+func TestEnvOverridesFlag(t *testing.T) {
+	t.Setenv("SERVER_ADDRESS", "localhost:9999")
+	cfg, err := parse([]string{"-a", "localhost:1111"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ServerAddr != "localhost:9999" {
+		t.Errorf("expected env value %q to override flag, got %q", "localhost:9999", cfg.ServerAddr)
+	}
+}
