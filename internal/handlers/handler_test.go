@@ -132,6 +132,72 @@ func TestRedirect_UnknownID(t *testing.T) {
 	}
 }
 
+func TestShortenURLJSON_ValidBody(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080")
+
+	body := strings.NewReader(`{"url":"https://example.com"}`)
+	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ShortenURLJSON(w, r)
+
+	res := w.Result()
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusCreated {
+		t.Errorf("expected status %d, got %d", http.StatusCreated, res.StatusCode)
+	}
+
+	respBody, _ := io.ReadAll(res.Body)
+	const want = `{"result":"http://localhost:8080/testid12"}`
+	if got := strings.TrimSpace(string(respBody)); got != want {
+		t.Errorf("expected body %q, got %q", want, got)
+	}
+}
+
+func TestShortenURLJSON_ContentType(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080")
+
+	body := strings.NewReader(`{"url":"https://example.com"}`)
+	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ShortenURLJSON(w, r)
+
+	ct := w.Result().Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+}
+
+func TestShortenURLJSON_EmptyURL(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080")
+
+	body := strings.NewReader(`{"url":""}`)
+	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ShortenURLJSON(w, r)
+
+	if w.Result().StatusCode != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+	}
+}
+
+func TestShortenURLJSON_InvalidJSON(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080")
+
+	body := strings.NewReader(`not json`)
+	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ShortenURLJSON(w, r)
+
+	if w.Result().StatusCode != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+	}
+}
+
 func TestRedirect_EmptyID(t *testing.T) {
 	h := handlers.New(newMockStorage(), "http://localhost:8080")
 
