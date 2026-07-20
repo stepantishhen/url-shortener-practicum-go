@@ -6,8 +6,9 @@ import (
 )
 
 type Config struct {
-	ServerAddr string
-	BaseURL    string
+	ServerAddr      string
+	BaseURL         string
+	FileStoragePath string
 }
 
 func New() (*Config, error) {
@@ -19,6 +20,7 @@ func parse(args []string) (*Config, error) {
 	fs := flag.NewFlagSet("shortener", flag.ContinueOnError)
 	fs.StringVar(&cfg.ServerAddr, "a", "localhost:8080", "HTTP server address")
 	fs.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "base URL for shortened URLs")
+	fs.StringVar(&cfg.FileStoragePath, "f", "urls.json", "path to file storage")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
@@ -27,6 +29,9 @@ func parse(args []string) (*Config, error) {
 	}
 	if v := os.Getenv("BASE_URL"); v != "" {
 		cfg.BaseURL = v
+	}
+	if v := os.Getenv("FILE_STORAGE_PATH"); v != "" {
+		cfg.FileStoragePath = v
 	}
 	return cfg, nil
 }

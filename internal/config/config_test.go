@@ -87,3 +87,45 @@ func TestEnvOverridesFlag(t *testing.T) {
 		t.Errorf("expected env value %q to override flag, got %q", "localhost:9999", cfg.ServerAddr)
 	}
 }
+
+func TestDefaultFileStoragePath(t *testing.T) {
+	cfg, err := parse([]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FileStoragePath != "urls.json" {
+		t.Errorf("expected FileStoragePath %q, got %q", "urls.json", cfg.FileStoragePath)
+	}
+}
+
+func TestFlagF(t *testing.T) {
+	cfg, err := parse([]string{"-f", "/tmp/storage.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FileStoragePath != "/tmp/storage.json" {
+		t.Errorf("expected FileStoragePath %q, got %q", "/tmp/storage.json", cfg.FileStoragePath)
+	}
+}
+
+func TestEnvFileStoragePath(t *testing.T) {
+	t.Setenv("FILE_STORAGE_PATH", "/tmp/env-storage.json")
+	cfg, err := parse([]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FileStoragePath != "/tmp/env-storage.json" {
+		t.Errorf("expected FileStoragePath %q, got %q", "/tmp/env-storage.json", cfg.FileStoragePath)
+	}
+}
+
+func TestEnvFileStoragePathOverridesFlag(t *testing.T) {
+	t.Setenv("FILE_STORAGE_PATH", "/tmp/env-storage.json")
+	cfg, err := parse([]string{"-f", "/tmp/flag-storage.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FileStoragePath != "/tmp/env-storage.json" {
+		t.Errorf("expected env value %q to override flag, got %q", "/tmp/env-storage.json", cfg.FileStoragePath)
+	}
+}

@@ -23,7 +23,17 @@ func main() {
 	}
 	defer logger.Sync()
 
-	repo := storage.NewMemoryStorage()
+	var repo storage.URLRepository
+	if cfg.FileStoragePath != "" {
+		fileRepo, err := storage.NewFileStorage(cfg.FileStoragePath)
+		if err != nil {
+			log.Fatalf("Failed to initialize file storage: %v", err)
+		}
+		repo = fileRepo
+		logger.Info("Using file storage", zap.String("path", cfg.FileStoragePath))
+	} else {
+		repo = storage.NewMemoryStorage()
+	}
 	h := handlers.New(repo, cfg.BaseURL)
 	router := server.NewRouter(h, logger)
 
