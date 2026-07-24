@@ -37,7 +37,7 @@ func (f *FileStorage) load() error {
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	if err != nil {
+	if err != nil || len(data) == 0 {
 		return err
 	}
 	if err := json.Unmarshal(data, &f.records); err != nil {
