@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -44,7 +45,9 @@ func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "%s/%s", h.baseURL, id)
+	if _, err := fmt.Fprintf(w, "%s/%s", h.baseURL, id); err != nil {
+		log.Printf("ShortenURL: write response: %v", err)
+	}
 }
 
 func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +66,9 @@ func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
 	resp := shortenResponse{Result: fmt.Sprintf("%s/%s", h.baseURL, id)}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("ShortenURLJSON: write response: %v", err)
+	}
 }
 
 func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {

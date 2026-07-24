@@ -7,12 +7,9 @@ import (
 	"strings"
 )
 
-var compressibleTypes = []string{"application/json", "text/html"}
-
 type gzipResponseWriter struct {
 	http.ResponseWriter
 	gz          *gzip.Writer
-	shouldGzip  bool
 	wroteHeader bool
 	acceptGzip  bool
 }
@@ -27,7 +24,6 @@ func (g *gzipResponseWriter) WriteHeader(code int) {
 		gz, err := gzip.NewWriterLevel(g.ResponseWriter, gzip.BestSpeed)
 		if err == nil {
 			g.gz = gz
-			g.shouldGzip = true
 			g.Header().Set("Content-Encoding", "gzip")
 			g.Header().Del("Content-Length")
 		}
@@ -42,7 +38,7 @@ func (g *gzipResponseWriter) Write(b []byte) (int, error) {
 		}
 		g.WriteHeader(http.StatusOK)
 	}
-	if g.shouldGzip {
+	if g.gz != nil {
 		return g.gz.Write(b)
 	}
 	return g.ResponseWriter.Write(b)
@@ -55,12 +51,13 @@ func (g *gzipResponseWriter) close() {
 }
 
 func isCompressible(contentType string) bool {
-	for _, t := range compressibleTypes {
-		if strings.HasPrefix(contentType, t) {
-			return true
-		}
+	switch {
+	case strings.HasPrefix(contentType, "application/json"),
+		strings.HasPrefix(contentType, "text/html"):
+		return true
+	default:
+		return false
 	}
-	return false
 }
 
 func Gzip() func(http.Handler) http.Handler {

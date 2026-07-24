@@ -24,14 +24,15 @@ func parse(args []string) (*Config, error) {
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
-	if v := os.Getenv("SERVER_ADDRESS"); v != "" {
-		cfg.ServerAddr = v
-	}
-	if v := os.Getenv("BASE_URL"); v != "" {
-		cfg.BaseURL = v
-	}
-	if v := os.Getenv("FILE_STORAGE_PATH"); v != "" {
-		cfg.FileStoragePath = v
-	}
+	cfg.ServerAddr = envOr("SERVER_ADDRESS", cfg.ServerAddr)
+	cfg.BaseURL = envOr("BASE_URL", cfg.BaseURL)
+	cfg.FileStoragePath = envOr("FILE_STORAGE_PATH", cfg.FileStoragePath)
 	return cfg, nil
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
