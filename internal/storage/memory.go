@@ -33,6 +33,25 @@ func (m *MemoryStorage) Get(id string) (string, bool) {
 	return url, ok
 }
 
+func (m *MemoryStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
+	ids := make([]string, len(items))
+	for i := range items {
+		id, err := generateID()
+		if err != nil {
+			return nil, err
+		}
+		ids[i] = id
+	}
+	results := make([]BatchOutput, len(items))
+	m.mu.Lock()
+	for i, item := range items {
+		m.data[ids[i]] = item.OriginalURL
+		results[i] = BatchOutput{CorrelationID: item.CorrelationID, ShortID: ids[i]}
+	}
+	m.mu.Unlock()
+	return results, nil
+}
+
 func generateID() (string, error) {
 	b := make([]byte, 6)
 	if _, err := rand.Read(b); err != nil {

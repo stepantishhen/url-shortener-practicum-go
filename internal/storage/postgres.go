@@ -63,3 +63,36 @@ func (p *PostgresStorage) Get(id string) (string, bool) {
 	}
 	return originalURL, true
 }
+
+func (p *PostgresStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
+	ids := make([]string, len(items))
+	for i := range items {
+		id, err := generateID()
+		if err != nil {
+			return nil, err
+		}
+		ids[i] = id
+	}
+
+	tx, err := p.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`INSERT INTO urls (id, original_url) VALUES ($1, $2)`)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	results := make([]BatchOutput, len(items))
+	for i, item := range items {
+		if _, err = stmt.Exec(ids[i], item.OriginalURL); err != nil {
+			return nil, err
+		}
+		results[i] = BatchOutput{CorrelationID: item.CorrelationID, ShortID: ids[i]}
+	}
+
+	return results, tx.Commit()
+}

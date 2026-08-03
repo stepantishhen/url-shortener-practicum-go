@@ -21,6 +21,16 @@ type shortenResponse struct {
 	Result string `json:"result"`
 }
 
+type batchRequest struct {
+	CorrelationID string `json:"correlation_id"`
+	OriginalURL   string `json:"original_url"`
+}
+
+type batchResponse struct {
+	CorrelationID string `json:"correlation_id"`
+	ShortURL      string `json:"short_url"`
+}
+
 type Handler struct {
 	repo    storage.URLRepository
 	baseURL string
@@ -87,6 +97,42 @@ func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, originalURL, http.StatusTemporaryRedirect)
+}
+
+func (h *Handler) ShortenBatch(w http.ResponseWriter, r *http.Request) {
+	var items []batchRequest
+	if err := json.NewDecoder(r.Body).Decode(&items); err != nil || len(items) == 0 {
+		http.Error(w, "bad request: invalid or empty batch", http.StatusBadRequest)
+		return
+	}
+
+	batch := make([]storage.BatchInput, len(items))
+	for i, item := range items {
+		batch[i] = storage.BatchInput{
+			CorrelationID: item.CorrelationID,
+			OriginalURL:   item.OriginalURL,
+		}
+	}
+
+	results, err := h.repo.SaveBatch(batch)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	resp := make([]batchResponse, len(results))
+	for i, res := range results {
+		resp[i] = batchResponse{
+			CorrelationID: res.CorrelationID,
+			ShortURL:      fmt.Sprintf("%s/%s", h.baseURL, res.ShortID),
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("ShortenBatch: write response: %v", err)
+	}
 }
 
 func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {

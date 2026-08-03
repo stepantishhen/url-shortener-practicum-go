@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,16 @@ func (m *mockStorage) Save(originalURL string) (string, error) {
 func (m *mockStorage) Get(id string) (string, bool) {
 	url, ok := m.data[id]
 	return url, ok
+}
+
+func (m *mockStorage) SaveBatch(items []storage.BatchInput) ([]storage.BatchOutput, error) {
+	results := make([]storage.BatchOutput, len(items))
+	for i, item := range items {
+		id := fmt.Sprintf("batchid%02d", i)
+		m.data[id] = item.OriginalURL
+		results[i] = storage.BatchOutput{CorrelationID: item.CorrelationID, ShortID: id}
+	}
+	return results, nil
 }
 
 func withURLParam(r *http.Request, key, value string) *http.Request {
@@ -219,5 +230,69 @@ func TestPing_NoDB(t *testing.T) {
 
 	if w.Result().StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.Result().StatusCode)
+	}
+}
+
+func TestShortenBatch_Valid(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+
+	body := strings.NewReader(`[
+		{"correlation_id":"id1","original_url":"https://example.com/1"},
+		{"correlation_id":"id2","original_url":"https://example.com/2"}
+	]`)
+	r := httptest.NewRequest(http.MethodPost, "/api/shorten/batch", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ShortenBatch(w, r)
+
+	res := w.Result()
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusCreated {
+		t.Errorf("expected status %d, got %d", http.StatusCreated, res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+
+	respBody, _ := io.ReadAll(res.Body)
+	body2 := string(respBody)
+	if !strings.Contains(body2, `"correlation_id":"id1"`) {
+		t.Errorf("response missing id1: %s", body2)
+	}
+	if !strings.Contains(body2, `"correlation_id":"id2"`) {
+		t.Errorf("response missing id2: %s", body2)
+	}
+	if !strings.Contains(body2, `"short_url":"http://localhost:8080/batchid00"`) {
+		t.Errorf("response missing short_url for batchid00: %s", body2)
+	}
+	if !strings.Contains(body2, `"short_url":"http://localhost:8080/batchid01"`) {
+		t.Errorf("response missing short_url for batchid01: %s", body2)
+	}
+}
+
+func TestShortenBatch_EmptyBatch(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+
+	r := httptest.NewRequest(http.MethodPost, "/api/shorten/batch", strings.NewReader(`[]`))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ShortenBatch(w, r)
+
+	if w.Result().StatusCode != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+	}
+}
+
+func TestShortenBatch_InvalidJSON(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+
+	r := httptest.NewRequest(http.MethodPost, "/api/shorten/batch", strings.NewReader(`not json`))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ShortenBatch(w, r)
+
+	if w.Result().StatusCode != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
 	}
 }

@@ -78,6 +78,45 @@ func (f *FileStorage) Get(id string) (string, bool) {
 	return url, ok
 }
 
+func (f *FileStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
+	ids := make([]string, len(items))
+	for i := range items {
+		id, err := generateID()
+		if err != nil {
+			return nil, err
+		}
+		ids[i] = id
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	newRecords := make([]record, len(items))
+	for i, item := range items {
+		newRecords[i] = record{
+			UUID:        strconv.Itoa(len(f.records) + i + 1),
+			ShortURL:    ids[i],
+			OriginalURL: item.OriginalURL,
+		}
+		f.data[ids[i]] = item.OriginalURL
+	}
+	f.records = append(f.records, newRecords...)
+
+	if err := f.flush(); err != nil {
+		for _, r := range newRecords {
+			delete(f.data, r.ShortURL)
+		}
+		f.records = f.records[:len(f.records)-len(newRecords)]
+		return nil, err
+	}
+
+	results := make([]BatchOutput, len(items))
+	for i, item := range items {
+		results[i] = BatchOutput{CorrelationID: item.CorrelationID, ShortID: ids[i]}
+	}
+	return results, nil
+}
+
 func (f *FileStorage) flush() error {
 	data, err := json.Marshal(f.records)
 	if err != nil {
