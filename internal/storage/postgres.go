@@ -48,9 +48,20 @@ func (p *PostgresStorage) Save(originalURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_, err = p.db.Exec(`INSERT INTO urls (id, original_url) VALUES ($1, $2)`, id, originalURL)
+	res, err := p.db.Exec(
+		`INSERT INTO urls (id, original_url) VALUES ($1, $2) ON CONFLICT (original_url) DO NOTHING`,
+		id, originalURL,
+	)
 	if err != nil {
 		return "", err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		var existingID string
+		err = p.db.QueryRow(`SELECT id FROM urls WHERE original_url = $1`, originalURL).Scan(&existingID)
+		if err != nil {
+			return "", err
+		}
+		return "", &ConflictError{ShortID: existingID}
 	}
 	return id, nil
 }
@@ -80,7 +91,10 @@ func (p *PostgresStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(`INSERT INTO urls (id, original_url) VALUES ($1, $2)`)
+	stmt, err := tx.Prepare(`
+		INSERT INTO urls (id, original_url) VALUES ($1, $2)
+		ON CONFLICT (original_url) DO UPDATE SET original_url = EXCLUDED.original_url
+		RETURNING id`)
 	if err != nil {
 		return nil, err
 	}
@@ -88,10 +102,11 @@ func (p *PostgresStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
 
 	results := make([]BatchOutput, len(items))
 	for i, item := range items {
-		if _, err = stmt.Exec(ids[i], item.OriginalURL); err != nil {
+		var returnedID string
+		if err = stmt.QueryRow(ids[i], item.OriginalURL).Scan(&returnedID); err != nil {
 			return nil, err
 		}
-		results[i] = BatchOutput{CorrelationID: item.CorrelationID, ShortID: ids[i]}
+		results[i] = BatchOutput{CorrelationID: item.CorrelationID, ShortID: returnedID}
 	}
 
 	return results, tx.Commit()

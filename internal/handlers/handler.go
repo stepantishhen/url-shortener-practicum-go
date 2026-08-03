@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -50,6 +51,14 @@ func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 
 	originalURL := strings.TrimSpace(string(body))
 	id, err := h.repo.Save(originalURL)
+
+	var conflictErr *storage.ConflictError
+	if errors.As(err, &conflictErr) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusConflict)
+		fmt.Fprintf(w, "%s/%s", h.baseURL, conflictErr.ShortID)
+		return
+	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -70,6 +79,17 @@ func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id, err := h.repo.Save(req.URL)
+
+	var conflictErr *storage.ConflictError
+	if errors.As(err, &conflictErr) {
+		resp := shortenResponse{Result: fmt.Sprintf("%s/%s", h.baseURL, conflictErr.ShortID)}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Printf("ShortenURLJSON: write conflict response: %v", err)
+		}
+		return
+	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

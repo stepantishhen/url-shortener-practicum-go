@@ -2,6 +2,7 @@ package storage_test
 
 import (
 	"database/sql"
+	"errors"
 	"os"
 	"testing"
 
@@ -23,12 +24,23 @@ func openTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func TestPostgresStorage_SaveAndGet(t *testing.T) {
-	db := openTestDB(t)
+// newTestRepo creates a PostgresStorage and truncates the urls table before the
+// test runs so each test starts with an empty slate.
+func newTestRepo(t *testing.T, db *sql.DB) *storage.PostgresStorage {
+	t.Helper()
 	repo, err := storage.NewPostgresStorage(db)
 	if err != nil {
 		t.Fatalf("NewPostgresStorage: %v", err)
 	}
+	if _, err := db.Exec(`TRUNCATE TABLE urls`); err != nil {
+		t.Fatalf("truncate urls: %v", err)
+	}
+	return repo
+}
+
+func TestPostgresStorage_SaveAndGet(t *testing.T) {
+	db := openTestDB(t)
+	repo := newTestRepo(t, db)
 
 	const original = "https://example.com/postgres-test"
 	id, err := repo.Save(original)
@@ -50,10 +62,7 @@ func TestPostgresStorage_SaveAndGet(t *testing.T) {
 
 func TestPostgresStorage_GetUnknown(t *testing.T) {
 	db := openTestDB(t)
-	repo, err := storage.NewPostgresStorage(db)
-	if err != nil {
-		t.Fatalf("NewPostgresStorage: %v", err)
-	}
+	repo := newTestRepo(t, db)
 
 	_, ok := repo.Get("no_such_")
 	if ok {
@@ -71,12 +80,32 @@ func TestPostgresStorage_MigrationsIdempotent(t *testing.T) {
 	}
 }
 
+func TestPostgresStorage_SaveConflict(t *testing.T) {
+	db := openTestDB(t)
+	repo := newTestRepo(t, db)
+
+	const original = "https://example.com/conflict-test"
+	firstID, err := repo.Save(original)
+	if err != nil {
+		t.Fatalf("first Save: %v", err)
+	}
+
+	_, err = repo.Save(original)
+	if err == nil {
+		t.Fatal("second Save with same URL should return ConflictError, got nil")
+	}
+	var conflictErr *storage.ConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Fatalf("expected ConflictError, got %T: %v", err, err)
+	}
+	if conflictErr.ShortID != firstID {
+		t.Errorf("ConflictError.ShortID = %q, want %q", conflictErr.ShortID, firstID)
+	}
+}
+
 func TestPostgresStorage_SaveBatch(t *testing.T) {
 	db := openTestDB(t)
-	repo, err := storage.NewPostgresStorage(db)
-	if err != nil {
-		t.Fatalf("NewPostgresStorage: %v", err)
-	}
+	repo := newTestRepo(t, db)
 
 	items := []storage.BatchInput{
 		{CorrelationID: "corr1", OriginalURL: "https://example.com/batch1"},

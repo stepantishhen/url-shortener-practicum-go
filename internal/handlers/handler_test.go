@@ -45,6 +45,13 @@ func (m *mockStorage) SaveBatch(items []storage.BatchInput) ([]storage.BatchOutp
 	return results, nil
 }
 
+// conflictMockStorage always returns ConflictError with a fixed existing ID.
+type conflictMockStorage struct{ *mockStorage }
+
+func (c *conflictMockStorage) Save(_ string) (string, error) {
+	return "", &storage.ConflictError{ShortID: "existing1"}
+}
+
 func withURLParam(r *http.Request, key, value string) *http.Request {
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add(key, value)
@@ -281,6 +288,48 @@ func TestShortenBatch_EmptyBatch(t *testing.T) {
 
 	if w.Result().StatusCode != http.StatusBadRequest {
 		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+	}
+}
+
+func TestShortenURL_Conflict(t *testing.T) {
+	h := handlers.New(&conflictMockStorage{newMockStorage()}, "http://localhost:8080", nil)
+
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("https://example.com"))
+	w := httptest.NewRecorder()
+	h.ShortenURL(w, r)
+
+	res := w.Result()
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusConflict {
+		t.Errorf("expected status %d, got %d", http.StatusConflict, res.StatusCode)
+	}
+	body, _ := io.ReadAll(res.Body)
+	const want = "http://localhost:8080/existing1"
+	if got := strings.TrimSpace(string(body)); got != want {
+		t.Errorf("expected body %q, got %q", want, got)
+	}
+}
+
+func TestShortenURLJSON_Conflict(t *testing.T) {
+	h := handlers.New(&conflictMockStorage{newMockStorage()}, "http://localhost:8080", nil)
+
+	body := strings.NewReader(`{"url":"https://example.com"}`)
+	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ShortenURLJSON(w, r)
+
+	res := w.Result()
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusConflict {
+		t.Errorf("expected status %d, got %d", http.StatusConflict, res.StatusCode)
+	}
+	respBody, _ := io.ReadAll(res.Body)
+	const want = `{"result":"http://localhost:8080/existing1"}`
+	if got := strings.TrimSpace(string(respBody)); got != want {
+		t.Errorf("expected body %q, got %q", want, got)
 	}
 }
 
