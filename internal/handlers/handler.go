@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,10 +24,11 @@ type shortenResponse struct {
 type Handler struct {
 	repo    storage.URLRepository
 	baseURL string
+	db      *sql.DB
 }
 
-func New(repo storage.URLRepository, baseURL string) *Handler {
-	return &Handler{repo: repo, baseURL: baseURL}
+func New(repo storage.URLRepository, baseURL string, db *sql.DB) *Handler {
+	return &Handler{repo: repo, baseURL: baseURL, db: db}
 }
 
 func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
@@ -85,4 +87,16 @@ func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, originalURL, http.StatusTemporaryRedirect)
+}
+
+func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {
+	if h.db == nil {
+		http.Error(w, "database not configured", http.StatusInternalServerError)
+		return
+	}
+	if err := h.db.PingContext(r.Context()); err != nil {
+		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }

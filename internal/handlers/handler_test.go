@@ -41,7 +41,7 @@ func withURLParam(r *http.Request, key, value string) *http.Request {
 }
 
 func TestShortenURL_ValidBody(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080")
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("https://example.com"))
 	w := httptest.NewRecorder()
@@ -62,7 +62,7 @@ func TestShortenURL_ValidBody(t *testing.T) {
 }
 
 func TestShortenURL_ContentType(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080")
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("https://example.com"))
 	w := httptest.NewRecorder()
@@ -75,7 +75,7 @@ func TestShortenURL_ContentType(t *testing.T) {
 }
 
 func TestShortenURL_EmptyBody(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080")
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(""))
 	w := httptest.NewRecorder()
@@ -87,7 +87,7 @@ func TestShortenURL_EmptyBody(t *testing.T) {
 }
 
 func TestShortenURL_WhitespaceOnlyBody(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080")
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("   \n  "))
 	w := httptest.NewRecorder()
@@ -101,7 +101,7 @@ func TestShortenURL_WhitespaceOnlyBody(t *testing.T) {
 func TestRedirect_KnownID(t *testing.T) {
 	store := newMockStorage()
 	store.data["testid12"] = "https://example.com/original"
-	h := handlers.New(store, "http://localhost:8080")
+	h := handlers.New(store, "http://localhost:8080", nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/testid12", nil)
 	r = withURLParam(r, "id", "testid12")
@@ -120,7 +120,7 @@ func TestRedirect_KnownID(t *testing.T) {
 }
 
 func TestRedirect_UnknownID(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080")
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/doesnotexist", nil)
 	r = withURLParam(r, "id", "doesnotexist")
@@ -133,7 +133,7 @@ func TestRedirect_UnknownID(t *testing.T) {
 }
 
 func TestShortenURLJSON_ValidBody(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080")
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
 
 	body := strings.NewReader(`{"url":"https://example.com"}`)
 	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
@@ -156,7 +156,7 @@ func TestShortenURLJSON_ValidBody(t *testing.T) {
 }
 
 func TestShortenURLJSON_ContentType(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080")
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
 
 	body := strings.NewReader(`{"url":"https://example.com"}`)
 	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
@@ -171,7 +171,7 @@ func TestShortenURLJSON_ContentType(t *testing.T) {
 }
 
 func TestShortenURLJSON_EmptyURL(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080")
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
 
 	body := strings.NewReader(`{"url":""}`)
 	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
@@ -185,7 +185,7 @@ func TestShortenURLJSON_EmptyURL(t *testing.T) {
 }
 
 func TestShortenURLJSON_InvalidJSON(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080")
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
 
 	body := strings.NewReader(`not json`)
 	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
@@ -199,7 +199,7 @@ func TestShortenURLJSON_InvalidJSON(t *testing.T) {
 }
 
 func TestRedirect_EmptyID(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080")
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()

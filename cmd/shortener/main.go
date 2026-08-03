@@ -1,9 +1,11 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 	"url-shortener-practicum-go/internal/config"
 	"url-shortener-practicum-go/internal/handlers"
@@ -23,6 +25,16 @@ func main() {
 	}
 	defer logger.Sync()
 
+	var db *sql.DB
+	if cfg.DatabaseDSN != "" {
+		db, err = sql.Open("pgx", cfg.DatabaseDSN)
+		if err != nil {
+			log.Fatalf("Failed to open database: %v", err)
+		}
+		defer db.Close()
+		logger.Info("Database configured", zap.String("dsn", cfg.DatabaseDSN))
+	}
+
 	var repo storage.URLRepository
 	if cfg.FileStoragePath != "" {
 		fileRepo, err := storage.NewFileStorage(cfg.FileStoragePath)
@@ -34,7 +46,8 @@ func main() {
 	} else {
 		repo = storage.NewMemoryStorage()
 	}
-	h := handlers.New(repo, cfg.BaseURL)
+
+	h := handlers.New(repo, cfg.BaseURL, db)
 	router := server.NewRouter(h, logger)
 
 	logger.Info("Starting server",
