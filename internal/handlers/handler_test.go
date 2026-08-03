@@ -209,3 +209,15 @@ func TestRedirect_EmptyID(t *testing.T) {
 		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
 	}
 }
+
+func TestPing_NoDB(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	w := httptest.NewRecorder()
+	h.Ping(w, r)
+
+	if w.Result().StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected status %d, got %d", http.StatusInternalServerError, w.Result().StatusCode)
+	}
+}

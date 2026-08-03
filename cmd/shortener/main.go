@@ -26,17 +26,22 @@ func main() {
 	defer logger.Sync()
 
 	var db *sql.DB
+	var repo storage.URLRepository
+
 	if cfg.DatabaseDSN != "" {
 		db, err = sql.Open("pgx", cfg.DatabaseDSN)
 		if err != nil {
 			log.Fatalf("Failed to open database: %v", err)
 		}
 		defer db.Close()
-		logger.Info("Database configured", zap.String("dsn", cfg.DatabaseDSN))
-	}
 
-	var repo storage.URLRepository
-	if cfg.FileStoragePath != "" {
+		pgRepo, err := storage.NewPostgresStorage(db)
+		if err != nil {
+			log.Fatalf("Failed to initialize postgres storage: %v", err)
+		}
+		repo = pgRepo
+		logger.Info("Using PostgreSQL storage")
+	} else if cfg.FileStoragePath != "" {
 		fileRepo, err := storage.NewFileStorage(cfg.FileStoragePath)
 		if err != nil {
 			log.Fatalf("Failed to initialize file storage: %v", err)
@@ -45,6 +50,7 @@ func main() {
 		logger.Info("Using file storage", zap.String("path", cfg.FileStoragePath))
 	} else {
 		repo = storage.NewMemoryStorage()
+		logger.Info("Using memory storage")
 	}
 
 	h := handlers.New(repo, cfg.BaseURL, db)
