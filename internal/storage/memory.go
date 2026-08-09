@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"sync"
@@ -21,8 +22,8 @@ func (m *MemoryStorage) Save(originalURL string) (string, error) {
 		return "", err
 	}
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.data[id] = originalURL
-	m.mu.Unlock()
 	return id, nil
 }
 
@@ -44,13 +45,15 @@ func (m *MemoryStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
 	}
 	results := make([]BatchOutput, len(items))
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i, item := range items {
 		m.data[ids[i]] = item.OriginalURL
 		results[i] = BatchOutput{CorrelationID: item.CorrelationID, ShortID: ids[i]}
 	}
-	m.mu.Unlock()
 	return results, nil
 }
+
+func (m *MemoryStorage) PingContext(_ context.Context) error { return nil }
 
 func generateID() (string, error) {
 	b := make([]byte, 6)

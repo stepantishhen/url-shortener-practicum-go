@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"errors"
@@ -75,6 +76,10 @@ func (p *PostgresStorage) Get(id string) (string, bool) {
 	return originalURL, true
 }
 
+func (p *PostgresStorage) PingContext(ctx context.Context) error {
+	return p.db.PingContext(ctx)
+}
+
 func (p *PostgresStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
 	ids := make([]string, len(items))
 	for i := range items {
@@ -91,19 +96,25 @@ func (p *PostgresStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(`
-		INSERT INTO urls (id, original_url) VALUES ($1, $2)
-		ON CONFLICT (original_url) DO UPDATE SET original_url = EXCLUDED.original_url
-		RETURNING id`)
+	insertStmt, err := tx.Prepare(`INSERT INTO urls (id, original_url) VALUES ($1, $2) ON CONFLICT (original_url) DO NOTHING`)
 	if err != nil {
 		return nil, err
 	}
-	defer stmt.Close()
+	defer insertStmt.Close()
+
+	selectStmt, err := tx.Prepare(`SELECT id FROM urls WHERE original_url = $1`)
+	if err != nil {
+		return nil, err
+	}
+	defer selectStmt.Close()
 
 	results := make([]BatchOutput, len(items))
 	for i, item := range items {
+		if _, err = insertStmt.Exec(ids[i], item.OriginalURL); err != nil {
+			return nil, err
+		}
 		var returnedID string
-		if err = stmt.QueryRow(ids[i], item.OriginalURL).Scan(&returnedID); err != nil {
+		if err = selectStmt.QueryRow(item.OriginalURL).Scan(&returnedID); err != nil {
 			return nil, err
 		}
 		results[i] = BatchOutput{CorrelationID: item.CorrelationID, ShortID: returnedID}

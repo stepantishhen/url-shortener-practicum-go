@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,11 +34,11 @@ type batchResponse struct {
 type Handler struct {
 	repo    storage.URLRepository
 	baseURL string
-	db      *sql.DB
+	pinger  storage.Pinger
 }
 
-func New(repo storage.URLRepository, baseURL string, db *sql.DB) *Handler {
-	return &Handler{repo: repo, baseURL: baseURL, db: db}
+func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger) *Handler {
+	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger}
 }
 
 func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
@@ -156,11 +155,11 @@ func (h *Handler) ShortenBatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {
-	if h.db == nil {
+	if h.pinger == nil {
 		http.Error(w, "database not configured", http.StatusInternalServerError)
 		return
 	}
-	if err := h.db.PingContext(r.Context()); err != nil {
+	if err := h.pinger.PingContext(r.Context()); err != nil {
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}

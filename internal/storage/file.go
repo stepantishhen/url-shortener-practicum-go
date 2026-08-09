@@ -1,10 +1,10 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
-	"strconv"
 	"sync"
 )
 
@@ -54,10 +54,14 @@ func (f *FileStorage) Save(originalURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	uuid, err := generateID()
+	if err != nil {
+		return "", err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	r := record{
-		UUID:        strconv.Itoa(len(f.records) + 1),
+		UUID:        uuid,
 		ShortURL:    id,
 		OriginalURL: originalURL,
 	}
@@ -79,13 +83,18 @@ func (f *FileStorage) Get(id string) (string, bool) {
 }
 
 func (f *FileStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
-	ids := make([]string, len(items))
+	type idPair struct{ shortID, uuid string }
+	pairs := make([]idPair, len(items))
 	for i := range items {
-		id, err := generateID()
+		shortID, err := generateID()
 		if err != nil {
 			return nil, err
 		}
-		ids[i] = id
+		uuid, err := generateID()
+		if err != nil {
+			return nil, err
+		}
+		pairs[i] = idPair{shortID, uuid}
 	}
 
 	f.mu.Lock()
@@ -94,11 +103,11 @@ func (f *FileStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
 	newRecords := make([]record, len(items))
 	for i, item := range items {
 		newRecords[i] = record{
-			UUID:        strconv.Itoa(len(f.records) + i + 1),
-			ShortURL:    ids[i],
+			UUID:        pairs[i].uuid,
+			ShortURL:    pairs[i].shortID,
 			OriginalURL: item.OriginalURL,
 		}
-		f.data[ids[i]] = item.OriginalURL
+		f.data[pairs[i].shortID] = item.OriginalURL
 	}
 	f.records = append(f.records, newRecords...)
 
@@ -112,10 +121,12 @@ func (f *FileStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
 
 	results := make([]BatchOutput, len(items))
 	for i, item := range items {
-		results[i] = BatchOutput{CorrelationID: item.CorrelationID, ShortID: ids[i]}
+		results[i] = BatchOutput{CorrelationID: item.CorrelationID, ShortID: pairs[i].shortID}
 	}
 	return results, nil
 }
+
+func (f *FileStorage) PingContext(_ context.Context) error { return nil }
 
 func (f *FileStorage) flush() error {
 	data, err := json.Marshal(f.records)
