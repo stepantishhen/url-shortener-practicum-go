@@ -11,20 +11,25 @@ import (
 
 	"github.com/go-chi/chi"
 	"url-shortener-practicum-go/internal/handlers"
+	"url-shortener-practicum-go/internal/middleware"
 	"url-shortener-practicum-go/internal/storage"
 )
 
 type mockStorage struct {
-	data map[string]string
+	data     map[string]string
+	userURLs map[string][]storage.UserURL
 }
 
 var _ storage.URLRepository = (*mockStorage)(nil)
 
 func newMockStorage() *mockStorage {
-	return &mockStorage{data: make(map[string]string)}
+	return &mockStorage{
+		data:     make(map[string]string),
+		userURLs: make(map[string][]storage.UserURL),
+	}
 }
 
-func (m *mockStorage) Save(originalURL string) (string, error) {
+func (m *mockStorage) Save(_, originalURL string) (string, error) {
 	const fixedID = "testid12"
 	m.data[fixedID] = originalURL
 	return fixedID, nil
@@ -35,7 +40,7 @@ func (m *mockStorage) Get(id string) (string, bool) {
 	return url, ok
 }
 
-func (m *mockStorage) SaveBatch(items []storage.BatchInput) ([]storage.BatchOutput, error) {
+func (m *mockStorage) SaveBatch(_ string, items []storage.BatchInput) ([]storage.BatchOutput, error) {
 	results := make([]storage.BatchOutput, len(items))
 	for i, item := range items {
 		id := fmt.Sprintf("batchid%02d", i)
@@ -45,10 +50,14 @@ func (m *mockStorage) SaveBatch(items []storage.BatchInput) ([]storage.BatchOutp
 	return results, nil
 }
 
+func (m *mockStorage) GetByUser(userID string) ([]storage.UserURL, error) {
+	return m.userURLs[userID], nil
+}
+
 // conflictMockStorage always returns ConflictError with a fixed existing ID.
 type conflictMockStorage struct{ *mockStorage }
 
-func (c *conflictMockStorage) Save(_ string) (string, error) {
+func (c *conflictMockStorage) Save(_, _ string) (string, error) {
 	return "", &storage.ConflictError{ShortID: "existing1"}
 }
 
@@ -343,5 +352,74 @@ func TestShortenBatch_InvalidJSON(t *testing.T) {
 
 	if w.Result().StatusCode != http.StatusBadRequest {
 		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Result().StatusCode)
+	}
+}
+
+// withAuthCtx injects auth middleware context values so handlers can be tested without running the full middleware.
+func withAuthCtx(r *http.Request, userID string, cookieInvalid bool) *http.Request {
+	ctx := context.WithValue(r.Context(), middleware.UserIDKey, userID)
+	ctx = context.WithValue(ctx, middleware.CookieInvalidKey, cookieInvalid)
+	return r.WithContext(ctx)
+}
+
+func TestGetUserURLs_InvalidCookie_Returns401(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/api/user/urls", nil)
+	r = withAuthCtx(r, "new-generated-id", true)
+	w := httptest.NewRecorder()
+	h.GetUserURLs(w, r)
+
+	if w.Result().StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestGetUserURLs_NoURLs_Returns204(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/api/user/urls", nil)
+	r = withAuthCtx(r, "user-with-no-urls", false)
+	w := httptest.NewRecorder()
+	h.GetUserURLs(w, r)
+
+	if w.Result().StatusCode != http.StatusNoContent {
+		t.Errorf("expected 204, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestGetUserURLs_WithURLs_Returns200(t *testing.T) {
+	const userID = "user-abc"
+	store := newMockStorage()
+	store.userURLs[userID] = []storage.UserURL{
+		{ShortID: "abc12345", OriginalURL: "https://example.com"},
+		{ShortID: "def67890", OriginalURL: "https://go.dev"},
+	}
+	h := handlers.New(store, "http://localhost:8080", nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/api/user/urls", nil)
+	r = withAuthCtx(r, userID, false)
+	w := httptest.NewRecorder()
+	h.GetUserURLs(w, r)
+
+	res := w.Result()
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("expected application/json, got %q", ct)
+	}
+	body, _ := io.ReadAll(res.Body)
+	s := string(body)
+	if !strings.Contains(s, `"short_url":"http://localhost:8080/abc12345"`) {
+		t.Errorf("response missing first short_url: %s", s)
+	}
+	if !strings.Contains(s, `"original_url":"https://example.com"`) {
+		t.Errorf("response missing first original_url: %s", s)
+	}
+	if !strings.Contains(s, `"short_url":"http://localhost:8080/def67890"`) {
+		t.Errorf("response missing second short_url: %s", s)
 	}
 }
