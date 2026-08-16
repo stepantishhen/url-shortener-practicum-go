@@ -14,6 +14,10 @@ import (
 	"url-shortener-practicum-go/internal/storage"
 )
 
+type DeleteService interface {
+	Submit(userID string, ids []string)
+}
+
 type shortenRequest struct {
 	URL string `json:"url"`
 }
@@ -41,10 +45,11 @@ type Handler struct {
 	repo    storage.URLRepository
 	baseURL string
 	pinger  storage.Pinger
+	deleter DeleteService
 }
 
-func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger) *Handler {
-	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger}
+func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger, deleter DeleteService) *Handler {
+	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger, deleter: deleter}
 }
 
 func userIDFromCtx(r *http.Request) string {
@@ -120,9 +125,13 @@ func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	originalURL, ok := h.repo.Get(id)
-	if !ok {
+	originalURL, found, deleted := h.repo.Get(id)
+	if !found {
 		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if deleted {
+		http.Error(w, "gone", http.StatusGone)
 		return
 	}
 
@@ -196,6 +205,19 @@ func (h *Handler) GetUserURLs(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("GetUserURLs: write response: %v", err)
 	}
+}
+
+func (h *Handler) DeleteUserURLs(w http.ResponseWriter, r *http.Request) {
+	var ids []string
+	if err := json.NewDecoder(r.Body).Decode(&ids); err != nil || len(ids) == 0 {
+		http.Error(w, "bad request: invalid or empty list", http.StatusBadRequest)
+		return
+	}
+
+	if h.deleter != nil {
+		h.deleter.Submit(userIDFromCtx(r), ids)
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {

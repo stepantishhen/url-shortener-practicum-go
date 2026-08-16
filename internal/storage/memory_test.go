@@ -16,9 +16,12 @@ func TestMemoryStorage_SaveAndGet(t *testing.T) {
 		t.Fatal("Save returned empty id")
 	}
 
-	got, ok := m.Get(id)
+	got, ok, deleted := m.Get(id)
 	if !ok {
 		t.Fatalf("Get(%q) returned not found", id)
+	}
+	if deleted {
+		t.Errorf("Get(%q) returned deleted=true unexpectedly", id)
 	}
 	if got != "https://example.com" {
 		t.Errorf("Get(%q) = %q, want %q", id, got, "https://example.com")
@@ -28,7 +31,7 @@ func TestMemoryStorage_SaveAndGet(t *testing.T) {
 func TestMemoryStorage_GetUnknown(t *testing.T) {
 	m := NewMemoryStorage()
 
-	_, ok := m.Get("nonexistent")
+	_, ok, _ := m.Get("nonexistent")
 	if ok {
 		t.Error("Get on unknown id should return false")
 	}
@@ -55,7 +58,7 @@ func TestMemoryStorage_SaveBatch(t *testing.T) {
 		if res.ShortID == "" {
 			t.Errorf("result[%d].ShortID is empty", i)
 		}
-		got, ok := m.Get(res.ShortID)
+		got, ok, _ := m.Get(res.ShortID)
 		if !ok {
 			t.Errorf("Get(%q) after SaveBatch returned not found", res.ShortID)
 		}

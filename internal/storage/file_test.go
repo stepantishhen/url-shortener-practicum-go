@@ -27,9 +27,12 @@ func TestFileStorageSaveAndGet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	url, ok := fs.Get(id)
+	url, ok, deleted := fs.Get(id)
 	if !ok {
 		t.Fatal("expected to find URL by id")
+	}
+	if deleted {
+		t.Errorf("Get: expected deleted=false, got true")
 	}
 	if url != "http://example.com" {
 		t.Errorf("Get: expected %q, got %q", "http://example.com", url)
@@ -67,7 +70,7 @@ func TestFileStoragePersistsAcrossRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	url, ok := fs2.Get(id)
+	url, ok, _ := fs2.Get(id)
 	if !ok {
 		t.Fatal("expected URL to survive restart")
 	}
@@ -193,7 +196,7 @@ func TestFileStorageSaveBatch(t *testing.T) {
 		if res.CorrelationID != items[i].CorrelationID {
 			t.Errorf("result[%d].CorrelationID = %q, want %q", i, res.CorrelationID, items[i].CorrelationID)
 		}
-		got, ok := fs.Get(res.ShortID)
+		got, ok, _ := fs.Get(res.ShortID)
 		if !ok {
 			t.Errorf("Get(%q) after SaveBatch returned not found", res.ShortID)
 		}
@@ -219,7 +222,7 @@ func TestFileStorageSaveBatch_PersistsAcrossRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := fs2.Get(results[0].ShortID)
+	got, ok, _ := fs2.Get(results[0].ShortID)
 	if !ok {
 		t.Fatal("expected batch URL to survive restart")
 	}

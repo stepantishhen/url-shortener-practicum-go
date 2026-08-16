@@ -8,6 +8,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 	"url-shortener-practicum-go/internal/config"
+	"url-shortener-practicum-go/internal/deleter"
 	"url-shortener-practicum-go/internal/handlers"
 	"url-shortener-practicum-go/internal/server"
 	"url-shortener-practicum-go/internal/storage"
@@ -57,7 +58,8 @@ func main() {
 		logger.Info("Using memory storage")
 	}
 
-	h := handlers.New(repo, cfg.BaseURL, pinger)
+	delSvc := deleter.New(repo, logger)
+	h := handlers.New(repo, cfg.BaseURL, pinger, delSvc)
 	router := server.NewRouter(h, logger, cfg.SecretKey)
 
 	logger.Info("Starting server",

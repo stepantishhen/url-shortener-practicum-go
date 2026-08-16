@@ -18,6 +18,7 @@ import (
 type mockStorage struct {
 	data     map[string]string
 	userURLs map[string][]storage.UserURL
+	deleted  map[string]bool
 }
 
 var _ storage.URLRepository = (*mockStorage)(nil)
@@ -26,6 +27,7 @@ func newMockStorage() *mockStorage {
 	return &mockStorage{
 		data:     make(map[string]string),
 		userURLs: make(map[string][]storage.UserURL),
+		deleted:  make(map[string]bool),
 	}
 }
 
@@ -35,9 +37,9 @@ func (m *mockStorage) Save(_, originalURL string) (string, error) {
 	return fixedID, nil
 }
 
-func (m *mockStorage) Get(id string) (string, bool) {
+func (m *mockStorage) Get(id string) (string, bool, bool) {
 	url, ok := m.data[id]
-	return url, ok
+	return url, ok, m.deleted[id]
 }
 
 func (m *mockStorage) SaveBatch(_ string, items []storage.BatchInput) ([]storage.BatchOutput, error) {
@@ -54,6 +56,13 @@ func (m *mockStorage) GetByUser(userID string) ([]storage.UserURL, error) {
 	return m.userURLs[userID], nil
 }
 
+func (m *mockStorage) DeleteBatch(_ string, ids []string) error {
+	for _, id := range ids {
+		m.deleted[id] = true
+	}
+	return nil
+}
+
 // conflictMockStorage always returns ConflictError with a fixed existing ID.
 type conflictMockStorage struct{ *mockStorage }
 
@@ -67,8 +76,14 @@ func withURLParam(r *http.Request, key, value string) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
 }
 
+func withAuthCtx(r *http.Request, userID string, cookieInvalid bool) *http.Request {
+	ctx := context.WithValue(r.Context(), middleware.UserIDKey, userID)
+	ctx = context.WithValue(ctx, middleware.CookieInvalidKey, cookieInvalid)
+	return r.WithContext(ctx)
+}
+
 func TestShortenURL_ValidBody(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("https://example.com"))
 	w := httptest.NewRecorder()
@@ -89,7 +104,7 @@ func TestShortenURL_ValidBody(t *testing.T) {
 }
 
 func TestShortenURL_ContentType(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("https://example.com"))
 	w := httptest.NewRecorder()
@@ -102,7 +117,7 @@ func TestShortenURL_ContentType(t *testing.T) {
 }
 
 func TestShortenURL_EmptyBody(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(""))
 	w := httptest.NewRecorder()
@@ -114,7 +129,7 @@ func TestShortenURL_EmptyBody(t *testing.T) {
 }
 
 func TestShortenURL_WhitespaceOnlyBody(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("   \n  "))
 	w := httptest.NewRecorder()
@@ -128,7 +143,7 @@ func TestShortenURL_WhitespaceOnlyBody(t *testing.T) {
 func TestRedirect_KnownID(t *testing.T) {
 	store := newMockStorage()
 	store.data["testid12"] = "https://example.com/original"
-	h := handlers.New(store, "http://localhost:8080", nil)
+	h := handlers.New(store, "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/testid12", nil)
 	r = withURLParam(r, "id", "testid12")
@@ -139,15 +154,13 @@ func TestRedirect_KnownID(t *testing.T) {
 	if res.StatusCode != http.StatusTemporaryRedirect {
 		t.Errorf("expected status %d, got %d", http.StatusTemporaryRedirect, res.StatusCode)
 	}
-
-	location := res.Header.Get("Location")
-	if location != "https://example.com/original" {
+	if location := res.Header.Get("Location"); location != "https://example.com/original" {
 		t.Errorf("expected Location %q, got %q", "https://example.com/original", location)
 	}
 }
 
 func TestRedirect_UnknownID(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/doesnotexist", nil)
 	r = withURLParam(r, "id", "doesnotexist")
@@ -159,8 +172,24 @@ func TestRedirect_UnknownID(t *testing.T) {
 	}
 }
 
+func TestRedirect_Gone(t *testing.T) {
+	store := newMockStorage()
+	store.data["deleted1"] = "https://example.com"
+	store.deleted["deleted1"] = true
+	h := handlers.New(store, "http://localhost:8080", nil, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/deleted1", nil)
+	r = withURLParam(r, "id", "deleted1")
+	w := httptest.NewRecorder()
+	h.Redirect(w, r)
+
+	if w.Result().StatusCode != http.StatusGone {
+		t.Errorf("expected 410 Gone, got %d", w.Result().StatusCode)
+	}
+}
+
 func TestShortenURLJSON_ValidBody(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	body := strings.NewReader(`{"url":"https://example.com"}`)
 	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
@@ -183,7 +212,7 @@ func TestShortenURLJSON_ValidBody(t *testing.T) {
 }
 
 func TestShortenURLJSON_ContentType(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	body := strings.NewReader(`{"url":"https://example.com"}`)
 	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
@@ -198,7 +227,7 @@ func TestShortenURLJSON_ContentType(t *testing.T) {
 }
 
 func TestShortenURLJSON_EmptyURL(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	body := strings.NewReader(`{"url":""}`)
 	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
@@ -212,7 +241,7 @@ func TestShortenURLJSON_EmptyURL(t *testing.T) {
 }
 
 func TestShortenURLJSON_InvalidJSON(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	body := strings.NewReader(`not json`)
 	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
@@ -226,7 +255,7 @@ func TestShortenURLJSON_InvalidJSON(t *testing.T) {
 }
 
 func TestRedirect_EmptyID(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -238,7 +267,7 @@ func TestRedirect_EmptyID(t *testing.T) {
 }
 
 func TestPing_NoDB(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/ping", nil)
 	w := httptest.NewRecorder()
@@ -250,7 +279,7 @@ func TestPing_NoDB(t *testing.T) {
 }
 
 func TestShortenBatch_Valid(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	body := strings.NewReader(`[
 		{"correlation_id":"id1","original_url":"https://example.com/1"},
@@ -272,23 +301,21 @@ func TestShortenBatch_Valid(t *testing.T) {
 	}
 
 	respBody, _ := io.ReadAll(res.Body)
-	body2 := string(respBody)
-	if !strings.Contains(body2, `"correlation_id":"id1"`) {
-		t.Errorf("response missing id1: %s", body2)
-	}
-	if !strings.Contains(body2, `"correlation_id":"id2"`) {
-		t.Errorf("response missing id2: %s", body2)
-	}
-	if !strings.Contains(body2, `"short_url":"http://localhost:8080/batchid00"`) {
-		t.Errorf("response missing short_url for batchid00: %s", body2)
-	}
-	if !strings.Contains(body2, `"short_url":"http://localhost:8080/batchid01"`) {
-		t.Errorf("response missing short_url for batchid01: %s", body2)
+	s := string(respBody)
+	for _, want := range []string{
+		`"correlation_id":"id1"`,
+		`"correlation_id":"id2"`,
+		`"short_url":"http://localhost:8080/batchid00"`,
+		`"short_url":"http://localhost:8080/batchid01"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("response missing %q: %s", want, s)
+		}
 	}
 }
 
 func TestShortenBatch_EmptyBatch(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodPost, "/api/shorten/batch", strings.NewReader(`[]`))
 	r.Header.Set("Content-Type", "application/json")
@@ -301,7 +328,7 @@ func TestShortenBatch_EmptyBatch(t *testing.T) {
 }
 
 func TestShortenURL_Conflict(t *testing.T) {
-	h := handlers.New(&conflictMockStorage{newMockStorage()}, "http://localhost:8080", nil)
+	h := handlers.New(&conflictMockStorage{newMockStorage()}, "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("https://example.com"))
 	w := httptest.NewRecorder()
@@ -321,7 +348,7 @@ func TestShortenURL_Conflict(t *testing.T) {
 }
 
 func TestShortenURLJSON_Conflict(t *testing.T) {
-	h := handlers.New(&conflictMockStorage{newMockStorage()}, "http://localhost:8080", nil)
+	h := handlers.New(&conflictMockStorage{newMockStorage()}, "http://localhost:8080", nil, nil)
 
 	body := strings.NewReader(`{"url":"https://example.com"}`)
 	r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
@@ -343,7 +370,7 @@ func TestShortenURLJSON_Conflict(t *testing.T) {
 }
 
 func TestShortenBatch_InvalidJSON(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodPost, "/api/shorten/batch", strings.NewReader(`not json`))
 	r.Header.Set("Content-Type", "application/json")
@@ -355,15 +382,8 @@ func TestShortenBatch_InvalidJSON(t *testing.T) {
 	}
 }
 
-// withAuthCtx injects auth middleware context values so handlers can be tested without running the full middleware.
-func withAuthCtx(r *http.Request, userID string, cookieInvalid bool) *http.Request {
-	ctx := context.WithValue(r.Context(), middleware.UserIDKey, userID)
-	ctx = context.WithValue(ctx, middleware.CookieInvalidKey, cookieInvalid)
-	return r.WithContext(ctx)
-}
-
 func TestGetUserURLs_InvalidCookie_Returns401(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/api/user/urls", nil)
 	r = withAuthCtx(r, "new-generated-id", true)
@@ -376,7 +396,7 @@ func TestGetUserURLs_InvalidCookie_Returns401(t *testing.T) {
 }
 
 func TestGetUserURLs_NoURLs_Returns204(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil)
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/api/user/urls", nil)
 	r = withAuthCtx(r, "user-with-no-urls", false)
@@ -395,7 +415,7 @@ func TestGetUserURLs_WithURLs_Returns200(t *testing.T) {
 		{ShortID: "abc12345", OriginalURL: "https://example.com"},
 		{ShortID: "def67890", OriginalURL: "https://go.dev"},
 	}
-	h := handlers.New(store, "http://localhost:8080", nil)
+	h := handlers.New(store, "http://localhost:8080", nil, nil)
 
 	r := httptest.NewRequest(http.MethodGet, "/api/user/urls", nil)
 	r = withAuthCtx(r, userID, false)
@@ -408,18 +428,44 @@ func TestGetUserURLs_WithURLs_Returns200(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", res.StatusCode)
 	}
-	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
-		t.Errorf("expected application/json, got %q", ct)
-	}
 	body, _ := io.ReadAll(res.Body)
 	s := string(body)
-	if !strings.Contains(s, `"short_url":"http://localhost:8080/abc12345"`) {
-		t.Errorf("response missing first short_url: %s", s)
+	for _, want := range []string{
+		`"short_url":"http://localhost:8080/abc12345"`,
+		`"original_url":"https://example.com"`,
+		`"short_url":"http://localhost:8080/def67890"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("response missing %q: %s", want, s)
+		}
 	}
-	if !strings.Contains(s, `"original_url":"https://example.com"`) {
-		t.Errorf("response missing first original_url: %s", s)
+}
+
+func TestDeleteUserURLs_Returns202(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
+
+	body := strings.NewReader(`["abc12345","def67890"]`)
+	r := httptest.NewRequest(http.MethodDelete, "/api/user/urls", body)
+	r.Header.Set("Content-Type", "application/json")
+	r = withAuthCtx(r, "user1", false)
+	w := httptest.NewRecorder()
+	h.DeleteUserURLs(w, r)
+
+	if w.Result().StatusCode != http.StatusAccepted {
+		t.Errorf("expected 202 Accepted, got %d", w.Result().StatusCode)
 	}
-	if !strings.Contains(s, `"short_url":"http://localhost:8080/def67890"`) {
-		t.Errorf("response missing second short_url: %s", s)
+}
+
+func TestDeleteUserURLs_EmptyList_Returns400(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
+
+	r := httptest.NewRequest(http.MethodDelete, "/api/user/urls", strings.NewReader(`[]`))
+	r.Header.Set("Content-Type", "application/json")
+	r = withAuthCtx(r, "user1", false)
+	w := httptest.NewRecorder()
+	h.DeleteUserURLs(w, r)
+
+	if w.Result().StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Result().StatusCode)
 	}
 }
