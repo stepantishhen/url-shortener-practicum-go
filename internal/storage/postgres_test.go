@@ -42,8 +42,9 @@ func TestPostgresStorage_SaveAndGet(t *testing.T) {
 	db := openTestDB(t)
 	repo := newTestRepo(t, db)
 
+	const userID = "user1"
 	const original = "https://example.com/postgres-test"
-	id, err := repo.Save("", original)
+	id, err := repo.Save(userID, original)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -57,6 +58,14 @@ func TestPostgresStorage_SaveAndGet(t *testing.T) {
 	}
 	if got != original {
 		t.Errorf("Get(%q) = %q, want %q", id, got, original)
+	}
+
+	urls, err := repo.GetByUser(userID)
+	if err != nil {
+		t.Fatalf("GetByUser: %v", err)
+	}
+	if len(urls) != 1 || urls[0].ShortID != id {
+		t.Errorf("GetByUser: expected [{%s %s}], got %v", id, original, urls)
 	}
 }
 
@@ -84,13 +93,14 @@ func TestPostgresStorage_SaveConflict(t *testing.T) {
 	db := openTestDB(t)
 	repo := newTestRepo(t, db)
 
+	const userID = "user1"
 	const original = "https://example.com/conflict-test"
-	firstID, err := repo.Save("", original)
+	firstID, err := repo.Save(userID, original)
 	if err != nil {
 		t.Fatalf("first Save: %v", err)
 	}
 
-	_, err = repo.Save("", original)
+	_, err = repo.Save(userID, original)
 	if err == nil {
 		t.Fatal("second Save with same URL should return ConflictError, got nil")
 	}
@@ -107,13 +117,14 @@ func TestPostgresStorage_SaveBatch(t *testing.T) {
 	db := openTestDB(t)
 	repo := newTestRepo(t, db)
 
+	const userID = "user1"
 	items := []storage.BatchInput{
 		{CorrelationID: "corr1", OriginalURL: "https://example.com/batch1"},
 		{CorrelationID: "corr2", OriginalURL: "https://example.com/batch2"},
 		{CorrelationID: "corr3", OriginalURL: "https://example.com/batch3"},
 	}
 
-	results, err := repo.SaveBatch("", items)
+	results, err := repo.SaveBatch(userID, items)
 	if err != nil {
 		t.Fatalf("SaveBatch: %v", err)
 	}
@@ -135,5 +146,13 @@ func TestPostgresStorage_SaveBatch(t *testing.T) {
 		if got != items[i].OriginalURL {
 			t.Errorf("Get(%q) = %q, want %q", res.ShortID, got, items[i].OriginalURL)
 		}
+	}
+
+	urls, err := repo.GetByUser(userID)
+	if err != nil {
+		t.Fatalf("GetByUser after SaveBatch: %v", err)
+	}
+	if len(urls) != len(items) {
+		t.Errorf("GetByUser: expected %d URLs, got %d", len(items), len(urls))
 	}
 }
