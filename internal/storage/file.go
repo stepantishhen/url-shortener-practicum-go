@@ -1,10 +1,10 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
-	"strconv"
 	"sync"
 )
 
@@ -54,10 +54,14 @@ func (f *FileStorage) Save(originalURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	uuid, err := generateID()
+	if err != nil {
+		return "", err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	r := record{
-		UUID:        strconv.Itoa(len(f.records) + 1),
+		UUID:        uuid,
 		ShortURL:    id,
 		OriginalURL: originalURL,
 	}
@@ -77,6 +81,52 @@ func (f *FileStorage) Get(id string) (string, bool) {
 	url, ok := f.data[id]
 	return url, ok
 }
+
+func (f *FileStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
+	type idPair struct{ shortID, uuid string }
+	pairs := make([]idPair, len(items))
+	for i := range items {
+		shortID, err := generateID()
+		if err != nil {
+			return nil, err
+		}
+		uuid, err := generateID()
+		if err != nil {
+			return nil, err
+		}
+		pairs[i] = idPair{shortID, uuid}
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	newRecords := make([]record, len(items))
+	for i, item := range items {
+		newRecords[i] = record{
+			UUID:        pairs[i].uuid,
+			ShortURL:    pairs[i].shortID,
+			OriginalURL: item.OriginalURL,
+		}
+		f.data[pairs[i].shortID] = item.OriginalURL
+	}
+	f.records = append(f.records, newRecords...)
+
+	if err := f.flush(); err != nil {
+		for _, r := range newRecords {
+			delete(f.data, r.ShortURL)
+		}
+		f.records = f.records[:len(f.records)-len(newRecords)]
+		return nil, err
+	}
+
+	results := make([]BatchOutput, len(items))
+	for i, item := range items {
+		results[i] = BatchOutput{CorrelationID: item.CorrelationID, ShortID: pairs[i].shortID}
+	}
+	return results, nil
+}
+
+func (f *FileStorage) PingContext(_ context.Context) error { return nil }
 
 func (f *FileStorage) flush() error {
 	data, err := json.Marshal(f.records)

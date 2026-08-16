@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -20,13 +21,24 @@ type shortenResponse struct {
 	Result string `json:"result"`
 }
 
+type batchRequest struct {
+	CorrelationID string `json:"correlation_id"`
+	OriginalURL   string `json:"original_url"`
+}
+
+type batchResponse struct {
+	CorrelationID string `json:"correlation_id"`
+	ShortURL      string `json:"short_url"`
+}
+
 type Handler struct {
 	repo    storage.URLRepository
 	baseURL string
+	pinger  storage.Pinger
 }
 
-func New(repo storage.URLRepository, baseURL string) *Handler {
-	return &Handler{repo: repo, baseURL: baseURL}
+func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger) *Handler {
+	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger}
 }
 
 func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
@@ -38,6 +50,14 @@ func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 
 	originalURL := strings.TrimSpace(string(body))
 	id, err := h.repo.Save(originalURL)
+
+	var conflictErr *storage.ConflictError
+	if errors.As(err, &conflictErr) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusConflict)
+		fmt.Fprintf(w, "%s/%s", h.baseURL, conflictErr.ShortID)
+		return
+	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -58,6 +78,17 @@ func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id, err := h.repo.Save(req.URL)
+
+	var conflictErr *storage.ConflictError
+	if errors.As(err, &conflictErr) {
+		resp := shortenResponse{Result: fmt.Sprintf("%s/%s", h.baseURL, conflictErr.ShortID)}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Printf("ShortenURLJSON: write conflict response: %v", err)
+		}
+		return
+	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -85,4 +116,52 @@ func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, originalURL, http.StatusTemporaryRedirect)
+}
+
+func (h *Handler) ShortenBatch(w http.ResponseWriter, r *http.Request) {
+	var items []batchRequest
+	if err := json.NewDecoder(r.Body).Decode(&items); err != nil || len(items) == 0 {
+		http.Error(w, "bad request: invalid or empty batch", http.StatusBadRequest)
+		return
+	}
+
+	batch := make([]storage.BatchInput, len(items))
+	for i, item := range items {
+		batch[i] = storage.BatchInput{
+			CorrelationID: item.CorrelationID,
+			OriginalURL:   item.OriginalURL,
+		}
+	}
+
+	results, err := h.repo.SaveBatch(batch)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	resp := make([]batchResponse, len(results))
+	for i, res := range results {
+		resp[i] = batchResponse{
+			CorrelationID: res.CorrelationID,
+			ShortURL:      fmt.Sprintf("%s/%s", h.baseURL, res.ShortID),
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("ShortenBatch: write response: %v", err)
+	}
+}
+
+func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {
+	if h.pinger == nil {
+		http.Error(w, "database not configured", http.StatusInternalServerError)
+		return
+	}
+	if err := h.pinger.PingContext(r.Context()); err != nil {
+		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }

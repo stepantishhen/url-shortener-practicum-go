@@ -1,9 +1,11 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 	"url-shortener-practicum-go/internal/config"
 	"url-shortener-practicum-go/internal/handlers"
@@ -12,29 +14,50 @@ import (
 )
 
 func main() {
-	cfg, err := config.New()
-	if err != nil {
-		log.Fatalf("Failed to initialize config: %v", err)
-	}
-
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 	defer logger.Sync()
 
+	cfg, err := config.New()
+	if err != nil {
+		logger.Fatal("Failed to initialize config", zap.Error(err))
+	}
+
 	var repo storage.URLRepository
-	if cfg.FileStoragePath != "" {
+	var pinger storage.Pinger
+
+	if cfg.DatabaseDSN != "" {
+		db, err := sql.Open("pgx", cfg.DatabaseDSN)
+		if err != nil {
+			logger.Fatal("Failed to open database", zap.Error(err))
+		}
+		defer db.Close()
+
+		pgRepo, err := storage.NewPostgresStorage(db)
+		if err != nil {
+			logger.Fatal("Failed to initialize postgres storage", zap.Error(err))
+		}
+		repo = pgRepo
+		pinger = pgRepo
+		logger.Info("Using PostgreSQL storage")
+	} else if cfg.FileStoragePath != "" {
 		fileRepo, err := storage.NewFileStorage(cfg.FileStoragePath)
 		if err != nil {
-			log.Fatalf("Failed to initialize file storage: %v", err)
+			logger.Fatal("Failed to initialize file storage", zap.Error(err))
 		}
 		repo = fileRepo
+		pinger = fileRepo
 		logger.Info("Using file storage", zap.String("path", cfg.FileStoragePath))
 	} else {
-		repo = storage.NewMemoryStorage()
+		memRepo := storage.NewMemoryStorage()
+		repo = memRepo
+		pinger = memRepo
+		logger.Info("Using memory storage")
 	}
-	h := handlers.New(repo, cfg.BaseURL)
+
+	h := handlers.New(repo, cfg.BaseURL, pinger)
 	router := server.NewRouter(h, logger)
 
 	logger.Info("Starting server",
@@ -43,6 +66,6 @@ func main() {
 	)
 
 	if err := http.ListenAndServe(cfg.ServerAddr, router); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		logger.Fatal("Server failed", zap.Error(err))
 	}
 }

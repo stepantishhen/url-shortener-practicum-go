@@ -94,8 +94,8 @@ func TestFileStorageJSONFormat(t *testing.T) {
 	if len(records) != 1 {
 		t.Fatalf("expected 1 record, got %d", len(records))
 	}
-	if records[0].UUID != "1" {
-		t.Errorf("expected UUID %q, got %q", "1", records[0].UUID)
+	if records[0].UUID == "" {
+		t.Error("expected non-empty UUID")
 	}
 	if records[0].OriginalURL != "http://example.com" {
 		t.Errorf("expected OriginalURL %q, got %q", "http://example.com", records[0].OriginalURL)
@@ -129,10 +129,14 @@ func TestFileStorageUUIDIncrement(t *testing.T) {
 	if err := json.Unmarshal(data, &records); err != nil {
 		t.Fatal(err)
 	}
+	seen := make(map[string]bool, len(records))
 	for i, r := range records {
-		expected := string(rune('1' + i))
-		if r.UUID != expected {
-			t.Errorf("record %d: expected UUID %q, got %q", i, expected, r.UUID)
+		if r.UUID == "" {
+			t.Errorf("record %d: UUID is empty", i)
 		}
+		if seen[r.UUID] {
+			t.Errorf("record %d: duplicate UUID %q", i, r.UUID)
+		}
+		seen[r.UUID] = true
 	}
 }

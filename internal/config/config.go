@@ -9,6 +9,7 @@ type Config struct {
 	ServerAddr      string
 	BaseURL         string
 	FileStoragePath string
+	DatabaseDSN     string
 }
 
 func New() (*Config, error) {
@@ -21,12 +22,14 @@ func parse(args []string) (*Config, error) {
 	fs.StringVar(&cfg.ServerAddr, "a", "localhost:8080", "HTTP server address")
 	fs.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "base URL for shortened URLs")
 	fs.StringVar(&cfg.FileStoragePath, "f", "urls.json", "path to file storage")
+	fs.StringVar(&cfg.DatabaseDSN, "d", "", "database DSN")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
 	cfg.ServerAddr = envOr("SERVER_ADDRESS", cfg.ServerAddr)
 	cfg.BaseURL = envOr("BASE_URL", cfg.BaseURL)
 	cfg.FileStoragePath = envOr("FILE_STORAGE_PATH", cfg.FileStoragePath)
+	cfg.DatabaseDSN = envOr("DATABASE_DSN", cfg.DatabaseDSN)
 	return cfg, nil
 }
 
