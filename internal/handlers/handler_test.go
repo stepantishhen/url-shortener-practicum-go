@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -467,5 +468,33 @@ func TestDeleteUserURLs_EmptyList_Returns400(t *testing.T) {
 
 	if w.Result().StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Result().StatusCode)
+	}
+}
+
+type mockPinger struct{ err error }
+
+func (p *mockPinger) PingContext(_ context.Context) error { return p.err }
+
+func TestPing_Success(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080", &mockPinger{err: nil}, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	w := httptest.NewRecorder()
+	h.Ping(w, r)
+
+	if w.Result().StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestPing_DBError_Returns500(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080", &mockPinger{err: errors.New("connection refused")}, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	w := httptest.NewRecorder()
+	h.Ping(w, r)
+
+	if w.Result().StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Result().StatusCode)
 	}
 }

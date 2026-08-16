@@ -128,3 +128,37 @@ func TestMemoryStorage_PingContext(t *testing.T) {
 		t.Errorf("PingContext returned unexpected error: %v", err)
 	}
 }
+
+func TestMemoryStorage_DeleteBatch(t *testing.T) {
+	m := NewMemoryStorage()
+
+	id, _ := m.Save("alice", "https://example.com")
+
+	if err := m.DeleteBatch("alice", []string{id}); err != nil {
+		t.Fatalf("DeleteBatch: %v", err)
+	}
+
+	_, found, deleted := m.Get(id)
+	if !found {
+		t.Fatal("URL should still exist after soft delete")
+	}
+	if !deleted {
+		t.Error("expected deleted=true after DeleteBatch")
+	}
+}
+
+func TestMemoryStorage_DeleteBatch_OwnershipEnforced(t *testing.T) {
+	m := NewMemoryStorage()
+
+	id, _ := m.Save("alice", "https://example.com")
+
+	// bob tries to delete alice's URL — must be ignored.
+	if err := m.DeleteBatch("bob", []string{id}); err != nil {
+		t.Fatalf("DeleteBatch: %v", err)
+	}
+
+	_, _, deleted := m.Get(id)
+	if deleted {
+		t.Error("bob must not be able to delete alice's URL")
+	}
+}

@@ -299,3 +299,70 @@ func TestConflictError_Error(t *testing.T) {
 		t.Errorf("Error() = %q, want %q", got, want)
 	}
 }
+
+func TestFileStorageDeleteBatch(t *testing.T) {
+	f, _ := os.CreateTemp("", "storage-*.json")
+	f.Close()
+	os.Remove(f.Name())
+	defer os.Remove(f.Name())
+
+	fs, _ := NewFileStorage(f.Name())
+	id, _ := fs.Save("alice", "https://example.com")
+
+	if err := fs.DeleteBatch("alice", []string{id}); err != nil {
+		t.Fatalf("DeleteBatch: %v", err)
+	}
+
+	_, found, deleted := fs.Get(id)
+	if !found {
+		t.Fatal("URL should still exist after soft delete")
+	}
+	if !deleted {
+		t.Error("expected deleted=true after DeleteBatch")
+	}
+}
+
+func TestFileStorageDeleteBatch_OwnershipEnforced(t *testing.T) {
+	f, _ := os.CreateTemp("", "storage-*.json")
+	f.Close()
+	os.Remove(f.Name())
+	defer os.Remove(f.Name())
+
+	fs, _ := NewFileStorage(f.Name())
+	id, _ := fs.Save("alice", "https://example.com")
+
+	// bob tries to delete alice's URL — must be ignored.
+	if err := fs.DeleteBatch("bob", []string{id}); err != nil {
+		t.Fatalf("DeleteBatch: %v", err)
+	}
+
+	_, _, deleted := fs.Get(id)
+	if deleted {
+		t.Error("bob must not be able to delete alice's URL")
+	}
+}
+
+func TestFileStorageDeleteBatch_PersistsAcrossRestarts(t *testing.T) {
+	f, _ := os.CreateTemp("", "storage-*.json")
+	f.Close()
+	os.Remove(f.Name())
+	defer os.Remove(f.Name())
+
+	fs1, _ := NewFileStorage(f.Name())
+	id, _ := fs1.Save("alice", "https://example.com")
+	if err := fs1.DeleteBatch("alice", []string{id}); err != nil {
+		t.Fatalf("DeleteBatch: %v", err)
+	}
+
+	fs2, err := NewFileStorage(f.Name())
+	if err != nil {
+		t.Fatalf("NewFileStorage after restart: %v", err)
+	}
+	_, found, deleted := fs2.Get(id)
+	if !found {
+		t.Fatal("URL should still exist after restart")
+	}
+	if !deleted {
+		t.Error("deleted flag must survive restart")
+	}
+}
