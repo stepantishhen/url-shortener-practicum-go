@@ -43,7 +43,7 @@ func TestPostgresStorage_SaveAndGet(t *testing.T) {
 	repo := newTestRepo(t, db)
 
 	const original = "https://example.com/postgres-test"
-	id, err := repo.Save(original)
+	id, err := repo.Save("", original)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -85,12 +85,12 @@ func TestPostgresStorage_SaveConflict(t *testing.T) {
 	repo := newTestRepo(t, db)
 
 	const original = "https://example.com/conflict-test"
-	firstID, err := repo.Save(original)
+	firstID, err := repo.Save("", original)
 	if err != nil {
 		t.Fatalf("first Save: %v", err)
 	}
 
-	_, err = repo.Save(original)
+	_, err = repo.Save("", original)
 	if err == nil {
 		t.Fatal("second Save with same URL should return ConflictError, got nil")
 	}
@@ -113,7 +113,7 @@ func TestPostgresStorage_SaveBatch(t *testing.T) {
 		{CorrelationID: "corr3", OriginalURL: "https://example.com/batch3"},
 	}
 
-	results, err := repo.SaveBatch(items)
+	results, err := repo.SaveBatch("", items)
 	if err != nil {
 		t.Fatalf("SaveBatch: %v", err)
 	}

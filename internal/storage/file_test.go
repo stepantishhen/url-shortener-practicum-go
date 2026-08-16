@@ -19,7 +19,7 @@ func TestFileStorageSaveAndGet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	id, err := fs.Save("http://example.com")
+	id, err := fs.Save("", "http://example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestFileStoragePersistsAcrossRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := fs1.Save("http://example.com")
+	id, err := fs1.Save("", "http://example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestFileStorageJSONFormat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fs.Save("http://example.com"); err != nil {
+	if _, err := fs.Save("", "http://example.com"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -116,7 +116,7 @@ func TestFileStorageUUIDIncrement(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 3 {
-		if _, err := fs.Save("http://example.com"); err != nil {
+		if _, err := fs.Save("", "http://example.com"); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -10,6 +10,7 @@ type Config struct {
 	BaseURL         string
 	FileStoragePath string
 	DatabaseDSN     string
+	SecretKey       string
 }
 
 func New() (*Config, error) {
@@ -23,6 +24,7 @@ func parse(args []string) (*Config, error) {
 	fs.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "base URL for shortened URLs")
 	fs.StringVar(&cfg.FileStoragePath, "f", "urls.json", "path to file storage")
 	fs.StringVar(&cfg.DatabaseDSN, "d", "", "database DSN")
+	fs.StringVar(&cfg.SecretKey, "s", "default-secret-key", "secret key for cookie signing")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
@@ -30,6 +32,7 @@ func parse(args []string) (*Config, error) {
 	cfg.BaseURL = envOr("BASE_URL", cfg.BaseURL)
 	cfg.FileStoragePath = envOr("FILE_STORAGE_PATH", cfg.FileStoragePath)
 	cfg.DatabaseDSN = envOr("DATABASE_DSN", cfg.DatabaseDSN)
+	cfg.SecretKey = envOr("SECRET_KEY", cfg.SecretKey)
 	return cfg, nil
 }
 
