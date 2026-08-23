@@ -176,13 +176,24 @@ func (f *FileStorage) DeleteBatch(userID string, ids []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	if len(ids) == 0 {
+		return nil
+	}
+
+	set := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+
 	changed := false
 	for i := range f.records {
 		r := &f.records[i]
-		if r.UserID == userID && contains(ids, r.ShortURL) && !r.DeletedFlag {
-			r.DeletedFlag = true
-			f.deleted[r.ShortURL] = true
-			changed = true
+		if r.UserID == userID && !r.DeletedFlag {
+			if _, exists := set[r.ShortURL]; exists {
+				r.DeletedFlag = true
+				f.deleted[r.ShortURL] = true
+				changed = true
+			}
 		}
 	}
 	if !changed {
@@ -201,11 +212,3 @@ func (f *FileStorage) flush() error {
 	return os.WriteFile(f.path, data, 0644)
 }
 
-func contains(slice []string, s string) bool {
-	for _, v := range slice {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}

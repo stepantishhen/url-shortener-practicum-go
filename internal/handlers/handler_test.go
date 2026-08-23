@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/go-chi/chi"
@@ -443,7 +444,9 @@ func TestGetUserURLs_WithURLs_Returns200(t *testing.T) {
 }
 
 func TestDeleteUserURLs_Returns202(t *testing.T) {
-	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
+	mock := newMockStorage()
+	mockDeleter := newMockDeleter()
+	h := handlers.New(mock, "http://localhost:8080", nil, mockDeleter)
 
 	body := strings.NewReader(`["abc12345","def67890"]`)
 	r := httptest.NewRequest(http.MethodDelete, "/api/user/urls", body)
@@ -454,6 +457,24 @@ func TestDeleteUserURLs_Returns202(t *testing.T) {
 
 	if w.Result().StatusCode != http.StatusAccepted {
 		t.Errorf("expected 202 Accepted, got %d", w.Result().StatusCode)
+	}
+	if len(mockDeleter.submitted) == 0 {
+		t.Error("expected deleter.Submit to be called")
+	}
+}
+
+func TestDeleteUserURLs_NilDeleter_Returns500(t *testing.T) {
+	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil)
+
+	body := strings.NewReader(`["abc12345","def67890"]`)
+	r := httptest.NewRequest(http.MethodDelete, "/api/user/urls", body)
+	r.Header.Set("Content-Type", "application/json")
+	r = withAuthCtx(r, "user1", false)
+	w := httptest.NewRecorder()
+	h.DeleteUserURLs(w, r)
+
+	if w.Result().StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Result().StatusCode)
 	}
 }
 
@@ -497,4 +518,19 @@ func TestPing_DBError_Returns500(t *testing.T) {
 	if w.Result().StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Result().StatusCode)
 	}
+}
+
+type mockDeleter struct {
+	mu       sync.Mutex
+	submitted map[string][]string
+}
+
+func newMockDeleter() *mockDeleter {
+	return &mockDeleter{submitted: make(map[string][]string)}
+}
+
+func (d *mockDeleter) Submit(userID string, ids []string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.submitted[userID] = append(d.submitted[userID], ids...)
 }

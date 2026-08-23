@@ -52,10 +52,7 @@ func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger, dele
 	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger, deleter: deleter}
 }
 
-func userIDFromCtx(r *http.Request) string {
-	userID, _ := r.Context().Value(middleware.UserIDKey).(string)
-	return userID
-}
+
 
 func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
@@ -65,7 +62,7 @@ func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	originalURL := strings.TrimSpace(string(body))
-	id, err := h.repo.Save(userIDFromCtx(r), originalURL)
+	id, err := h.repo.Save(middleware.UserID(r.Context()), originalURL)
 
 	var conflictErr *storage.ConflictError
 	if errors.As(err, &conflictErr) {
@@ -93,7 +90,7 @@ func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := h.repo.Save(userIDFromCtx(r), req.URL)
+	id, err := h.repo.Save(middleware.UserID(r.Context()), req.URL)
 
 	var conflictErr *storage.ConflictError
 	if errors.As(err, &conflictErr) {
@@ -153,7 +150,7 @@ func (h *Handler) ShortenBatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	results, err := h.repo.SaveBatch(userIDFromCtx(r), batch)
+	results, err := h.repo.SaveBatch(middleware.UserID(r.Context()), batch)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -181,7 +178,7 @@ func (h *Handler) GetUserURLs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := userIDFromCtx(r)
+	userID := middleware.UserID(r.Context())
 	urls, err := h.repo.GetByUser(userID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -214,10 +211,14 @@ func (h *Handler) DeleteUserURLs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID := middleware.UserID(r.Context())
 	if h.deleter != nil {
-		h.deleter.Submit(userIDFromCtx(r), ids)
+		h.deleter.Submit(userID, ids)
+		w.WriteHeader(http.StatusAccepted)
+	} else {
+		log.Println("DeleteUserURLs: deleter service is nil, cannot delete")
+		http.Error(w, "internal error", http.StatusInternalServerError)
 	}
-	w.WriteHeader(http.StatusAccepted)
 }
 
 func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {

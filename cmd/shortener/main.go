@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
@@ -62,12 +67,53 @@ func main() {
 	h := handlers.New(repo, cfg.BaseURL, pinger, delSvc)
 	router := server.NewRouter(h, logger, cfg.SecretKey)
 
-	logger.Info("Starting server",
-		zap.String("address", cfg.ServerAddr),
-		zap.String("base_url", cfg.BaseURL),
-	)
-
-	if err := http.ListenAndServe(cfg.ServerAddr, router); err != nil {
-		logger.Fatal("Server failed", zap.Error(err))
+	srv := &http.Server{
+		Addr:         cfg.ServerAddr,
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
+	go func() {
+		logger.Info("Starting server",
+			zap.String("address", cfg.ServerAddr),
+			zap.String("base_url", cfg.BaseURL),
+		)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("Server failed", zap.Error(err))
+		}
+	}()
+
+	stopChan := make(chan os.Signal, 1)
+	signal.Notify(stopChan, syscall.SIGINT, syscall.SIGTERM)
+	<-stopChan
+	logger.Info("Received shutdown signal, stopping gracefully...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error("HTTP server shutdown error", zap.Error(err))
+	}
+
+	delCtx, delCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer delCancel()
+
+	done := make(chan struct{})
+	go func() {
+		if err := delSvc.Shutdown(15 * time.Second); err != nil {
+			logger.Warn("Deleter service shutdown", zap.Error(err))
+		} else {
+			logger.Info("Deleter service stopped")
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-delCtx.Done():
+		logger.Warn("Deleter service shutdown timeout")
+	}
+
+	logger.Info("Application stopped successfully")
 }
