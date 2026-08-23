@@ -10,8 +10,13 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi"
+	"url-shortener-practicum-go/internal/middleware"
 	"url-shortener-practicum-go/internal/storage"
 )
+
+type DeleteService interface {
+	Submit(userID string, ids []string)
+}
 
 type shortenRequest struct {
 	URL string `json:"url"`
@@ -31,15 +36,23 @@ type batchResponse struct {
 	ShortURL      string `json:"short_url"`
 }
 
+type userURLResponse struct {
+	ShortURL    string `json:"short_url"`
+	OriginalURL string `json:"original_url"`
+}
+
 type Handler struct {
 	repo    storage.URLRepository
 	baseURL string
 	pinger  storage.Pinger
+	deleter DeleteService
 }
 
-func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger) *Handler {
-	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger}
+func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger, deleter DeleteService) *Handler {
+	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger, deleter: deleter}
 }
+
+
 
 func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
@@ -49,7 +62,7 @@ func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	originalURL := strings.TrimSpace(string(body))
-	id, err := h.repo.Save(originalURL)
+	id, err := h.repo.Save(middleware.UserID(r.Context()), originalURL)
 
 	var conflictErr *storage.ConflictError
 	if errors.As(err, &conflictErr) {
@@ -77,7 +90,7 @@ func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := h.repo.Save(req.URL)
+	id, err := h.repo.Save(middleware.UserID(r.Context()), req.URL)
 
 	var conflictErr *storage.ConflictError
 	if errors.As(err, &conflictErr) {
@@ -109,9 +122,13 @@ func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	originalURL, ok := h.repo.Get(id)
-	if !ok {
+	originalURL, found, deleted := h.repo.Get(id)
+	if !found {
 		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if deleted {
+		http.Error(w, "gone", http.StatusGone)
 		return
 	}
 
@@ -133,7 +150,7 @@ func (h *Handler) ShortenBatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	results, err := h.repo.SaveBatch(batch)
+	results, err := h.repo.SaveBatch(middleware.UserID(r.Context()), batch)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -151,6 +168,56 @@ func (h *Handler) ShortenBatch(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("ShortenBatch: write response: %v", err)
+	}
+}
+
+func (h *Handler) GetUserURLs(w http.ResponseWriter, r *http.Request) {
+	cookieInvalid, _ := r.Context().Value(middleware.CookieInvalidKey).(bool)
+	if cookieInvalid {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	userID := middleware.UserID(r.Context())
+	urls, err := h.repo.GetByUser(userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if len(urls) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	resp := make([]userURLResponse, len(urls))
+	for i, u := range urls {
+		resp[i] = userURLResponse{
+			ShortURL:    fmt.Sprintf("%s/%s", h.baseURL, u.ShortID),
+			OriginalURL: u.OriginalURL,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("GetUserURLs: write response: %v", err)
+	}
+}
+
+func (h *Handler) DeleteUserURLs(w http.ResponseWriter, r *http.Request) {
+	var ids []string
+	if err := json.NewDecoder(r.Body).Decode(&ids); err != nil || len(ids) == 0 {
+		http.Error(w, "bad request: invalid or empty list", http.StatusBadRequest)
+		return
+	}
+
+	userID := middleware.UserID(r.Context())
+	if h.deleter != nil {
+		h.deleter.Submit(userID, ids)
+		w.WriteHeader(http.StatusAccepted)
+	} else {
+		log.Println("DeleteUserURLs: deleter service is nil, cannot delete")
+		http.Error(w, "internal error", http.StatusInternalServerError)
 	}
 }
 

@@ -7,14 +7,17 @@ import (
 	"url-shortener-practicum-go/internal/middleware"
 )
 
-func NewRouter(h *handlers.Handler, log *zap.Logger) *chi.Mux {
+func NewRouter(h *handlers.Handler, log *zap.Logger, secretKey string) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger(log))
 	r.Use(middleware.Gzip())
+	r.Use(middleware.Auth(secretKey))
 	r.Get("/ping", h.Ping)
 	r.Post("/", h.ShortenURL)
 	r.Post("/api/shorten", h.ShortenURLJSON)
 	r.Post("/api/shorten/batch", h.ShortenBatch)
+	r.Get("/api/user/urls", h.GetUserURLs)
+	r.Delete("/api/user/urls", h.DeleteUserURLs)
 	r.Get("/{id}", h.Redirect)
 	return r
 }
