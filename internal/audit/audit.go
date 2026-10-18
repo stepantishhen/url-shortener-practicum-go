@@ -76,7 +76,7 @@ func (fl *FileListener) Notify(event Event) {
 	defer fl.mu.Unlock()
 	enc := json.NewEncoder(fl.file)
 	if err := enc.Encode(event); err != nil {
-		// Log silently — file listener should not affect request handling.
+		log.Printf("audit: encode event: %v", err)
 	}
 }
 
