@@ -25,10 +25,16 @@ type BatchOutput struct {
 	ShortID       string
 }
 
+type UserURL struct {
+	ShortID     string
+	OriginalURL string
+}
+
 type URLRepository interface {
-	Save(originalURL string) (string, error)
+	Save(userID, originalURL string) (string, error)
 	Get(id string) (string, bool)
-	SaveBatch(items []BatchInput) ([]BatchOutput, error)
+	SaveBatch(userID string, items []BatchInput) ([]BatchOutput, error)
+	GetByUser(userID string) ([]UserURL, error)
 }
 
 type Pinger interface {

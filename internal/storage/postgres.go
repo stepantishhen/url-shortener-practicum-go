@@ -44,14 +44,23 @@ func runMigrations(db *sql.DB) error {
 	return nil
 }
 
-func (p *PostgresStorage) Save(originalURL string) (string, error) {
+// nullableStr converts an empty string to nil so that SQL drivers map it to NULL
+// rather than attempting to cast "" to a typed column (e.g. UUID).
+func nullableStr(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func (p *PostgresStorage) Save(userID, originalURL string) (string, error) {
 	id, err := generateID()
 	if err != nil {
 		return "", err
 	}
 	res, err := p.db.Exec(
-		`INSERT INTO urls (id, original_url) VALUES ($1, $2) ON CONFLICT (original_url) DO NOTHING`,
-		id, originalURL,
+		`INSERT INTO urls (id, original_url, user_id) VALUES ($1, $2, $3) ON CONFLICT (original_url) DO NOTHING`,
+		id, originalURL, nullableStr(userID),
 	)
 	if err != nil {
 		return "", err
@@ -80,7 +89,7 @@ func (p *PostgresStorage) PingContext(ctx context.Context) error {
 	return p.db.PingContext(ctx)
 }
 
-func (p *PostgresStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
+func (p *PostgresStorage) SaveBatch(userID string, items []BatchInput) ([]BatchOutput, error) {
 	ids := make([]string, len(items))
 	for i := range items {
 		id, err := generateID()
@@ -96,7 +105,7 @@ func (p *PostgresStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
 	}
 	defer tx.Rollback()
 
-	insertStmt, err := tx.Prepare(`INSERT INTO urls (id, original_url) VALUES ($1, $2) ON CONFLICT (original_url) DO NOTHING`)
+	insertStmt, err := tx.Prepare(`INSERT INTO urls (id, original_url, user_id) VALUES ($1, $2, $3) ON CONFLICT (original_url) DO NOTHING`)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +119,7 @@ func (p *PostgresStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
 
 	results := make([]BatchOutput, len(items))
 	for i, item := range items {
-		if _, err = insertStmt.Exec(ids[i], item.OriginalURL); err != nil {
+		if _, err = insertStmt.Exec(ids[i], item.OriginalURL, nullableStr(userID)); err != nil {
 			return nil, err
 		}
 		var returnedID string
@@ -121,4 +130,21 @@ func (p *PostgresStorage) SaveBatch(items []BatchInput) ([]BatchOutput, error) {
 	}
 
 	return results, tx.Commit()
+}
+
+func (p *PostgresStorage) GetByUser(userID string) ([]UserURL, error) {
+	rows, err := p.db.Query(`SELECT id, original_url FROM urls WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []UserURL
+	for rows.Next() {
+		var u UserURL
+		if err := rows.Scan(&u.ShortID, &u.OriginalURL); err != nil {
+			return nil, err
+		}
+		result = append(result, u)
+	}
+	return result, rows.Err()
 }

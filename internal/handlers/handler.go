@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi"
+	"url-shortener-practicum-go/internal/middleware"
 	"url-shortener-practicum-go/internal/storage"
 )
 
@@ -31,6 +32,11 @@ type batchResponse struct {
 	ShortURL      string `json:"short_url"`
 }
 
+type userURLResponse struct {
+	ShortURL    string `json:"short_url"`
+	OriginalURL string `json:"original_url"`
+}
+
 type Handler struct {
 	repo    storage.URLRepository
 	baseURL string
@@ -41,6 +47,11 @@ func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger) *Han
 	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger}
 }
 
+func userIDFromCtx(r *http.Request) string {
+	userID, _ := r.Context().Value(middleware.UserIDKey).(string)
+	return userID
+}
+
 func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil || len(strings.TrimSpace(string(body))) == 0 {
@@ -49,7 +60,7 @@ func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	originalURL := strings.TrimSpace(string(body))
-	id, err := h.repo.Save(originalURL)
+	id, err := h.repo.Save(userIDFromCtx(r), originalURL)
 
 	var conflictErr *storage.ConflictError
 	if errors.As(err, &conflictErr) {
@@ -77,7 +88,7 @@ func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := h.repo.Save(req.URL)
+	id, err := h.repo.Save(userIDFromCtx(r), req.URL)
 
 	var conflictErr *storage.ConflictError
 	if errors.As(err, &conflictErr) {
@@ -133,7 +144,7 @@ func (h *Handler) ShortenBatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	results, err := h.repo.SaveBatch(batch)
+	results, err := h.repo.SaveBatch(userIDFromCtx(r), batch)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -151,6 +162,39 @@ func (h *Handler) ShortenBatch(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("ShortenBatch: write response: %v", err)
+	}
+}
+
+func (h *Handler) GetUserURLs(w http.ResponseWriter, r *http.Request) {
+	cookieInvalid, _ := r.Context().Value(middleware.CookieInvalidKey).(bool)
+	if cookieInvalid {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	userID := userIDFromCtx(r)
+	urls, err := h.repo.GetByUser(userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if len(urls) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	resp := make([]userURLResponse, len(urls))
+	for i, u := range urls {
+		resp[i] = userURLResponse{
+			ShortURL:    fmt.Sprintf("%s/%s", h.baseURL, u.ShortID),
+			OriginalURL: u.OriginalURL,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("GetUserURLs: write response: %v", err)
 	}
 }
 

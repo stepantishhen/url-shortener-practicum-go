@@ -58,7 +58,7 @@ func main() {
 	}
 
 	h := handlers.New(repo, cfg.BaseURL, pinger)
-	router := server.NewRouter(h, logger)
+	router := server.NewRouter(h, logger, cfg.SecretKey)
 
 	logger.Info("Starting server",
 		zap.String("address", cfg.ServerAddr),
