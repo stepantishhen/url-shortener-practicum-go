@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi"
+	"url-shortener-practicum-go/internal/audit"
 	"url-shortener-practicum-go/internal/middleware"
 	"url-shortener-practicum-go/internal/storage"
 )
@@ -42,14 +43,15 @@ type userURLResponse struct {
 }
 
 type Handler struct {
-	repo    storage.URLRepository
-	baseURL string
-	pinger  storage.Pinger
-	deleter DeleteService
+	repo        storage.URLRepository
+	baseURL     string
+	pinger      storage.Pinger
+	deleter     DeleteService
+	auditEmitter *audit.Emitter
 }
 
-func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger, deleter DeleteService) *Handler {
-	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger, deleter: deleter}
+func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger, deleter DeleteService, emitter *audit.Emitter) *Handler {
+	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger, deleter: deleter, auditEmitter: emitter}
 }
 
 
@@ -81,6 +83,7 @@ func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 	if _, err := fmt.Fprintf(w, "%s/%s", h.baseURL, id); err != nil {
 		log.Printf("ShortenURL: write response: %v", err)
 	}
+	h.auditEmitter.Emit(audit.Now("shorten", middleware.UserID(r.Context()), originalURL))
 }
 
 func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
@@ -113,6 +116,7 @@ func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("ShortenURLJSON: write response: %v", err)
 	}
+	h.auditEmitter.Emit(audit.Now("shorten", middleware.UserID(r.Context()), req.URL))
 }
 
 func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
@@ -133,6 +137,7 @@ func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, originalURL, http.StatusTemporaryRedirect)
+	h.auditEmitter.Emit(audit.Now("follow", middleware.UserID(r.Context()), originalURL))
 }
 
 func (h *Handler) ShortenBatch(w http.ResponseWriter, r *http.Request) {
