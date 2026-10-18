@@ -17,6 +17,7 @@ func NewRouter(h *handlers.Handler, log *zap.Logger, secretKey string) *chi.Mux 
 	r.Post("/api/shorten", h.ShortenURLJSON)
 	r.Post("/api/shorten/batch", h.ShortenBatch)
 	r.Get("/api/user/urls", h.GetUserURLs)
+	r.Delete("/api/user/urls", h.DeleteUserURLs)
 	r.Get("/{id}", h.Redirect)
 	return r
 }

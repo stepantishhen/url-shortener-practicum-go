@@ -27,9 +27,12 @@ func TestFileStorageSaveAndGet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	url, ok := fs.Get(id)
+	url, ok, deleted := fs.Get(id)
 	if !ok {
 		t.Fatal("expected to find URL by id")
+	}
+	if deleted {
+		t.Errorf("Get: expected deleted=false, got true")
 	}
 	if url != "http://example.com" {
 		t.Errorf("Get: expected %q, got %q", "http://example.com", url)
@@ -67,7 +70,7 @@ func TestFileStoragePersistsAcrossRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	url, ok := fs2.Get(id)
+	url, ok, _ := fs2.Get(id)
 	if !ok {
 		t.Fatal("expected URL to survive restart")
 	}
@@ -193,7 +196,7 @@ func TestFileStorageSaveBatch(t *testing.T) {
 		if res.CorrelationID != items[i].CorrelationID {
 			t.Errorf("result[%d].CorrelationID = %q, want %q", i, res.CorrelationID, items[i].CorrelationID)
 		}
-		got, ok := fs.Get(res.ShortID)
+		got, ok, _ := fs.Get(res.ShortID)
 		if !ok {
 			t.Errorf("Get(%q) after SaveBatch returned not found", res.ShortID)
 		}
@@ -219,7 +222,7 @@ func TestFileStorageSaveBatch_PersistsAcrossRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := fs2.Get(results[0].ShortID)
+	got, ok, _ := fs2.Get(results[0].ShortID)
 	if !ok {
 		t.Fatal("expected batch URL to survive restart")
 	}
@@ -294,5 +297,72 @@ func TestConflictError_Error(t *testing.T) {
 	want := "url already exists: abc12345"
 	if got := err.Error(); got != want {
 		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestFileStorageDeleteBatch(t *testing.T) {
+	f, _ := os.CreateTemp("", "storage-*.json")
+	f.Close()
+	os.Remove(f.Name())
+	defer os.Remove(f.Name())
+
+	fs, _ := NewFileStorage(f.Name())
+	id, _ := fs.Save("alice", "https://example.com")
+
+	if err := fs.DeleteBatch("alice", []string{id}); err != nil {
+		t.Fatalf("DeleteBatch: %v", err)
+	}
+
+	_, found, deleted := fs.Get(id)
+	if !found {
+		t.Fatal("URL should still exist after soft delete")
+	}
+	if !deleted {
+		t.Error("expected deleted=true after DeleteBatch")
+	}
+}
+
+func TestFileStorageDeleteBatch_OwnershipEnforced(t *testing.T) {
+	f, _ := os.CreateTemp("", "storage-*.json")
+	f.Close()
+	os.Remove(f.Name())
+	defer os.Remove(f.Name())
+
+	fs, _ := NewFileStorage(f.Name())
+	id, _ := fs.Save("alice", "https://example.com")
+
+	// bob tries to delete alice's URL — must be ignored.
+	if err := fs.DeleteBatch("bob", []string{id}); err != nil {
+		t.Fatalf("DeleteBatch: %v", err)
+	}
+
+	_, _, deleted := fs.Get(id)
+	if deleted {
+		t.Error("bob must not be able to delete alice's URL")
+	}
+}
+
+func TestFileStorageDeleteBatch_PersistsAcrossRestarts(t *testing.T) {
+	f, _ := os.CreateTemp("", "storage-*.json")
+	f.Close()
+	os.Remove(f.Name())
+	defer os.Remove(f.Name())
+
+	fs1, _ := NewFileStorage(f.Name())
+	id, _ := fs1.Save("alice", "https://example.com")
+	if err := fs1.DeleteBatch("alice", []string{id}); err != nil {
+		t.Fatalf("DeleteBatch: %v", err)
+	}
+
+	fs2, err := NewFileStorage(f.Name())
+	if err != nil {
+		t.Fatalf("NewFileStorage after restart: %v", err)
+	}
+	_, found, deleted := fs2.Get(id)
+	if !found {
+		t.Fatal("URL should still exist after restart")
+	}
+	if !deleted {
+		t.Error("deleted flag must survive restart")
 	}
 }

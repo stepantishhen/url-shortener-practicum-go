@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"embed"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratepg "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -76,13 +78,16 @@ func (p *PostgresStorage) Save(userID, originalURL string) (string, error) {
 	return id, nil
 }
 
-func (p *PostgresStorage) Get(id string) (string, bool) {
+func (p *PostgresStorage) Get(id string) (string, bool, bool) {
 	var originalURL string
-	err := p.db.QueryRow(`SELECT original_url FROM urls WHERE id = $1`, id).Scan(&originalURL)
+	var isDeleted bool
+	err := p.db.QueryRow(
+		`SELECT original_url, is_deleted FROM urls WHERE id = $1`, id,
+	).Scan(&originalURL, &isDeleted)
 	if err != nil {
-		return "", false
+		return "", false, false
 	}
-	return originalURL, true
+	return originalURL, true, isDeleted
 }
 
 func (p *PostgresStorage) PingContext(ctx context.Context) error {
@@ -147,4 +152,21 @@ func (p *PostgresStorage) GetByUser(userID string) ([]UserURL, error) {
 		result = append(result, u)
 	}
 	return result, rows.Err()
+}
+
+func (p *PostgresStorage) DeleteBatch(userID string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, userID)
+	ph := make([]string, len(ids))
+	for i, id := range ids {
+		args = append(args, id)
+		ph[i] = fmt.Sprintf("$%d", i+2)
+	}
+	query := "UPDATE urls SET is_deleted = TRUE WHERE user_id = $1 AND id IN (" +
+		strings.Join(ph, ",") + ")"
+	_, err := p.db.Exec(query, args...)
+	return err
 }

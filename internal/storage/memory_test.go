@@ -16,9 +16,12 @@ func TestMemoryStorage_SaveAndGet(t *testing.T) {
 		t.Fatal("Save returned empty id")
 	}
 
-	got, ok := m.Get(id)
+	got, ok, deleted := m.Get(id)
 	if !ok {
 		t.Fatalf("Get(%q) returned not found", id)
+	}
+	if deleted {
+		t.Errorf("Get(%q) returned deleted=true unexpectedly", id)
 	}
 	if got != "https://example.com" {
 		t.Errorf("Get(%q) = %q, want %q", id, got, "https://example.com")
@@ -28,7 +31,7 @@ func TestMemoryStorage_SaveAndGet(t *testing.T) {
 func TestMemoryStorage_GetUnknown(t *testing.T) {
 	m := NewMemoryStorage()
 
-	_, ok := m.Get("nonexistent")
+	_, ok, _ := m.Get("nonexistent")
 	if ok {
 		t.Error("Get on unknown id should return false")
 	}
@@ -55,7 +58,7 @@ func TestMemoryStorage_SaveBatch(t *testing.T) {
 		if res.ShortID == "" {
 			t.Errorf("result[%d].ShortID is empty", i)
 		}
-		got, ok := m.Get(res.ShortID)
+		got, ok, _ := m.Get(res.ShortID)
 		if !ok {
 			t.Errorf("Get(%q) after SaveBatch returned not found", res.ShortID)
 		}
@@ -123,5 +126,39 @@ func TestMemoryStorage_PingContext(t *testing.T) {
 	m := NewMemoryStorage()
 	if err := m.PingContext(context.Background()); err != nil {
 		t.Errorf("PingContext returned unexpected error: %v", err)
+	}
+}
+
+func TestMemoryStorage_DeleteBatch(t *testing.T) {
+	m := NewMemoryStorage()
+
+	id, _ := m.Save("alice", "https://example.com")
+
+	if err := m.DeleteBatch("alice", []string{id}); err != nil {
+		t.Fatalf("DeleteBatch: %v", err)
+	}
+
+	_, found, deleted := m.Get(id)
+	if !found {
+		t.Fatal("URL should still exist after soft delete")
+	}
+	if !deleted {
+		t.Error("expected deleted=true after DeleteBatch")
+	}
+}
+
+func TestMemoryStorage_DeleteBatch_OwnershipEnforced(t *testing.T) {
+	m := NewMemoryStorage()
+
+	id, _ := m.Save("alice", "https://example.com")
+
+	// bob tries to delete alice's URL — must be ignored.
+	if err := m.DeleteBatch("bob", []string{id}); err != nil {
+		t.Fatalf("DeleteBatch: %v", err)
+	}
+
+	_, _, deleted := m.Get(id)
+	if deleted {
+		t.Error("bob must not be able to delete alice's URL")
 	}
 }

@@ -52,9 +52,12 @@ func TestPostgresStorage_SaveAndGet(t *testing.T) {
 		t.Fatal("Save returned empty id")
 	}
 
-	got, ok := repo.Get(id)
+	got, ok, deleted := repo.Get(id)
 	if !ok {
 		t.Fatalf("Get(%q) returned not found", id)
+	}
+	if deleted {
+		t.Errorf("Get(%q) returned deleted=true unexpectedly", id)
 	}
 	if got != original {
 		t.Errorf("Get(%q) = %q, want %q", id, got, original)
@@ -73,7 +76,7 @@ func TestPostgresStorage_GetUnknown(t *testing.T) {
 	db := openTestDB(t)
 	repo := newTestRepo(t, db)
 
-	_, ok := repo.Get("no_such_")
+	_, ok, _ := repo.Get("no_such_")
 	if ok {
 		t.Error("Get on unknown id should return false")
 	}
@@ -139,7 +142,7 @@ func TestPostgresStorage_SaveBatch(t *testing.T) {
 		if len(res.ShortID) == 0 {
 			t.Errorf("result[%d].ShortID is empty", i)
 		}
-		got, ok := repo.Get(res.ShortID)
+		got, ok, _ := repo.Get(res.ShortID)
 		if !ok {
 			t.Errorf("Get(%q) after SaveBatch returned not found", res.ShortID)
 		}

@@ -31,10 +31,12 @@ type UserURL struct {
 }
 
 type URLRepository interface {
+	// Get returns originalURL, found, deleted.
+	Get(id string) (string, bool, bool)
 	Save(userID, originalURL string) (string, error)
-	Get(id string) (string, bool)
 	SaveBatch(userID string, items []BatchInput) ([]BatchOutput, error)
 	GetByUser(userID string) ([]UserURL, error)
+	DeleteBatch(userID string, ids []string) error
 }
 
 type Pinger interface {
