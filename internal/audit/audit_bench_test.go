@@ -7,18 +7,20 @@ import (
 func BenchmarkEmitter_Emit_NoListeners(b *testing.B) {
 	emitter := NewEmitter()
 	event := Now("shorten", "user1", "https://example.com/page")
-	for b.Loop() {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		emitter.Emit(event)
 	}
 }
 
 func BenchmarkEmitter_Emit_WithListeners(b *testing.B) {
 	emitter := NewEmitter()
-	for range 3 {
+	for j := 0; j < 3; j++ {
 		emitter.AddListener(&mockListener{notify: func(Event) {}})
 	}
 	event := Now("shorten", "user1", "https://example.com/page")
-	for b.Loop() {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		emitter.Emit(event)
 	}
 }
@@ -30,13 +32,14 @@ func BenchmarkFileListener_Notify(b *testing.B) {
 	}
 	defer fl.Close()
 	event := Now("shorten", "user1", "https://example.com/page")
-	for b.Loop() {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		fl.Notify(event)
 	}
 }
 
 func BenchmarkNow(b *testing.B) {
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		Now("shorten", "user1", "https://example.com/page")
 	}
 }
