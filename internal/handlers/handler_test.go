@@ -522,7 +522,7 @@ func TestPing_DBError_Returns500(t *testing.T) {
 }
 
 type mockDeleter struct {
-	mu       sync.Mutex
+	mu        sync.Mutex
 	submitted map[string][]string
 }
 

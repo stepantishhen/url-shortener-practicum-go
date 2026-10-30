@@ -15,6 +15,7 @@ type item struct {
 	id     string
 }
 
+// Service processes URL deletion requests asynchronously in the background.
 type Service struct {
 	in     chan item
 	repo   storage.URLRepository
@@ -40,6 +41,8 @@ func New(repo storage.URLRepository, log *zap.Logger) *Service {
 	return s
 }
 
+// Submit enqueues short IDs for deletion on behalf of userID.
+// Items are batched and flushed every 5 seconds or when the buffer reaches 100.
 func (s *Service) Submit(userID string, ids []string) {
 	for _, id := range ids {
 		select {
@@ -138,6 +141,7 @@ func (s *Service) flush(buf []item) {
 	}
 }
 
+// Shutdown signals the background worker to stop and waits up to timeout for it to finish.
 func (s *Service) Shutdown(timeout time.Duration) error {
 	s.log.Info("shutting down deleter service")
 	s.cancel()

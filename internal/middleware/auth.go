@@ -19,6 +19,9 @@ const (
 	cookieName                  = "user_id"
 )
 
+// Auth returns a middleware that issues and validates HMAC-signed user-ID cookies.
+// A valid cookie injects the user ID into the request context; an absent or invalid
+// cookie triggers issuance of a new one.
 func Auth(secretKey string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
