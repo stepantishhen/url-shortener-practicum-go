@@ -14,7 +14,8 @@ import (
 
 func BenchmarkShortenURL(b *testing.B) {
 	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil, audit.NewEmitter())
-	for b.Loop() {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("https://example.com/page"))
 		w := httptest.NewRecorder()
 		h.ShortenURL(w, r)
@@ -23,7 +24,8 @@ func BenchmarkShortenURL(b *testing.B) {
 
 func BenchmarkShortenURLJSON(b *testing.B) {
 	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil, audit.NewEmitter())
-	for b.Loop() {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		body := strings.NewReader(`{"url":"https://example.com/page"}`)
 		r := httptest.NewRequest(http.MethodPost, "/api/shorten", body)
 		r.Header.Set("Content-Type", "application/json")
@@ -36,7 +38,8 @@ func BenchmarkRedirect(b *testing.B) {
 	store := newMockStorage()
 	store.data["testid12"] = "https://example.com/original"
 	h := handlers.New(store, "http://localhost:8080", nil, nil, audit.NewEmitter())
-	for b.Loop() {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		r := httptest.NewRequest(http.MethodGet, "/testid12", nil)
 		r = withURLParam(r, "id", "testid12")
 		w := httptest.NewRecorder()
@@ -47,11 +50,12 @@ func BenchmarkRedirect(b *testing.B) {
 func BenchmarkShortenBatch(b *testing.B) {
 	h := handlers.New(newMockStorage(), "http://localhost:8080", nil, nil, audit.NewEmitter())
 	parts := make([]string, 20)
-	for i := range 20 {
+	for i := 0; i < 20; i++ {
 		parts[i] = fmt.Sprintf(`{"correlation_id":"id%d","original_url":"https://example.com/%d"}`, i, i)
 	}
 	body := "[" + strings.Join(parts, ",") + "]"
-	for b.Loop() {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		r := httptest.NewRequest(http.MethodPost, "/api/shorten/batch", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -62,14 +66,15 @@ func BenchmarkShortenBatch(b *testing.B) {
 func BenchmarkGetUserURLs(b *testing.B) {
 	const userID = "bench-user"
 	store := newMockStorage()
-	for i := range 50 {
+	for i := 0; i < 50; i++ {
 		store.userURLs[userID] = append(store.userURLs[userID], storage.UserURL{
 			ShortID:     fmt.Sprintf("id%06d", i),
 			OriginalURL: fmt.Sprintf("https://example.com/%d", i),
 		})
 	}
 	h := handlers.New(store, "http://localhost:8080", nil, nil, audit.NewEmitter())
-	for b.Loop() {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		r := httptest.NewRequest(http.MethodGet, "/api/user/urls", nil)
 		r = withAuthCtx(r, userID, false)
 		w := httptest.NewRecorder()
