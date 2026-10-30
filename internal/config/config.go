@@ -5,6 +5,8 @@ import (
 	"os"
 )
 
+// Config holds all runtime configuration for the shortener service.
+// Values are loaded from CLI flags, then overridden by environment variables.
 type Config struct {
 	ServerAddr      string
 	BaseURL         string
@@ -15,6 +17,7 @@ type Config struct {
 	AuditURL        string
 }
 
+// New parses CLI flags (os.Args[1:]) and environment variables into a Config.
 func New() (*Config, error) {
 	return parse(os.Args[1:])
 }

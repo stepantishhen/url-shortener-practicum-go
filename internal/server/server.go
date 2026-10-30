@@ -7,6 +7,7 @@ import (
 	"url-shortener-practicum-go/internal/middleware"
 )
 
+// NewRouter builds and returns the chi router with all middleware and routes registered.
 func NewRouter(h *handlers.Handler, log *zap.Logger, secretKey string) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger(log))

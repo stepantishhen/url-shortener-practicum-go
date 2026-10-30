@@ -27,7 +27,7 @@ type Listener interface {
 
 // Emitter is the subject that manages observers and dispatches events.
 type Emitter struct {
-	mu       sync.RWMutex
+	mu        sync.RWMutex
 	listeners []Listener
 }
 
@@ -58,6 +58,7 @@ func (e *Emitter) Emit(event Event) {
 // FileListener writes audit events to a file, one JSON per line.
 type FileListener struct {
 	file *os.File
+	enc  *json.Encoder
 	mu   sync.Mutex
 }
 
@@ -67,15 +68,14 @@ func NewFileListener(path string) (*FileListener, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &FileListener{file: f}, nil
+	return &FileListener{file: f, enc: json.NewEncoder(f)}, nil
 }
 
 // Notify writes the event as a JSON line to the file.
 func (fl *FileListener) Notify(event Event) {
 	fl.mu.Lock()
 	defer fl.mu.Unlock()
-	enc := json.NewEncoder(fl.file)
-	if err := enc.Encode(event); err != nil {
+	if err := fl.enc.Encode(event); err != nil {
 		log.Printf("audit: encode event: %v", err)
 	}
 }
