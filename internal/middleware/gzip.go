@@ -60,6 +60,8 @@ func isCompressible(contentType string) bool {
 	}
 }
 
+// Gzip returns a middleware that transparently decompresses gzip request bodies
+// and compresses JSON/HTML responses when the client sends Accept-Encoding: gzip.
 func Gzip() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
