@@ -211,4 +211,3 @@ func (f *FileStorage) flush() error {
 	}
 	return os.WriteFile(f.path, data, 0644)
 }
-

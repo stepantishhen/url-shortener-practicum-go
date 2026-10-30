@@ -7,6 +7,15 @@ import (
 	"sync"
 )
 
+// idBufPool reuses 6-byte random buffers to reduce GC pressure in generateID.
+var idBufPool = sync.Pool{
+	New: func() any {
+		var b [6]byte
+		return &b
+	},
+}
+
+// MemoryStorage is an in-memory implementation of URLRepository.
 type MemoryStorage struct {
 	mu      sync.RWMutex
 	data    map[string]string   // short_id -> original_url
@@ -15,6 +24,7 @@ type MemoryStorage struct {
 	deleted map[string]bool     // short_id -> is_deleted
 }
 
+// NewMemoryStorage creates an empty MemoryStorage.
 func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{
 		data:    make(map[string]string),
@@ -24,6 +34,7 @@ func NewMemoryStorage() *MemoryStorage {
 	}
 }
 
+// Save stores a new URL and returns its generated short ID.
 func (m *MemoryStorage) Save(userID, originalURL string) (string, error) {
 	id, err := generateID()
 	if err != nil {
@@ -39,6 +50,7 @@ func (m *MemoryStorage) Save(userID, originalURL string) (string, error) {
 	return id, nil
 }
 
+// Get returns the original URL for a given short ID.
 func (m *MemoryStorage) Get(id string) (string, bool, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -49,29 +61,30 @@ func (m *MemoryStorage) Get(id string) (string, bool, bool) {
 	return url, true, m.deleted[id]
 }
 
+// SaveBatch stores multiple URLs and returns their short IDs.
+// IDs are generated before acquiring the lock to reduce contention.
 func (m *MemoryStorage) SaveBatch(userID string, items []BatchInput) ([]BatchOutput, error) {
-	ids := make([]string, len(items))
-	for i := range items {
+	results := make([]BatchOutput, len(items))
+	for i, item := range items {
 		id, err := generateID()
 		if err != nil {
 			return nil, err
 		}
-		ids[i] = id
+		results[i] = BatchOutput{CorrelationID: item.CorrelationID, ShortID: id}
 	}
-	results := make([]BatchOutput, len(items))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, item := range items {
-		m.data[ids[i]] = item.OriginalURL
+		m.data[results[i].ShortID] = item.OriginalURL
 		if userID != "" {
-			m.byUser[userID] = append(m.byUser[userID], ids[i])
-			m.owners[ids[i]] = userID
+			m.byUser[userID] = append(m.byUser[userID], results[i].ShortID)
+			m.owners[results[i].ShortID] = userID
 		}
-		results[i] = BatchOutput{CorrelationID: item.CorrelationID, ShortID: ids[i]}
 	}
 	return results, nil
 }
 
+// GetByUser returns all URLs saved by the given user.
 func (m *MemoryStorage) GetByUser(userID string) ([]UserURL, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -85,6 +98,7 @@ func (m *MemoryStorage) GetByUser(userID string) ([]UserURL, error) {
 	return result, nil
 }
 
+// DeleteBatch soft-deletes the given short IDs owned by userID.
 func (m *MemoryStorage) DeleteBatch(userID string, ids []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -96,12 +110,19 @@ func (m *MemoryStorage) DeleteBatch(userID string, ids []string) error {
 	return nil
 }
 
+// PingContext implements storage.Pinger for MemoryStorage (always succeeds).
 func (m *MemoryStorage) PingContext(_ context.Context) error { return nil }
 
+// generateID returns a random 8-character URL-safe base64 string.
+// The source byte buffer is pooled to reduce GC pressure.
 func generateID() (string, error) {
-	b := make([]byte, 6)
-	if _, err := rand.Read(b); err != nil {
+	bp := idBufPool.Get().(*[6]byte)
+	_, err := rand.Read(bp[:])
+	if err != nil {
+		idBufPool.Put(bp)
 		return "", err
 	}
-	return base64.URLEncoding.EncodeToString(b)[:8], nil
+	result := base64.URLEncoding.EncodeToString(bp[:])
+	idBufPool.Put(bp)
+	return result, nil
 }
