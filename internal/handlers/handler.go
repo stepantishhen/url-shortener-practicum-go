@@ -1,19 +1,21 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi"
+	"url-shortener-practicum-go/internal/audit"
 	"url-shortener-practicum-go/internal/middleware"
 	"url-shortener-practicum-go/internal/storage"
 )
 
+// DeleteService is the interface for submitting async URL deletions.
 type DeleteService interface {
 	Submit(userID string, ids []string)
 }
@@ -41,34 +43,42 @@ type userURLResponse struct {
 	OriginalURL string `json:"original_url"`
 }
 
+// Handler holds the dependencies for the HTTP handlers.
 type Handler struct {
-	repo    storage.URLRepository
-	baseURL string
-	pinger  storage.Pinger
-	deleter DeleteService
+	repo         storage.URLRepository
+	baseURL      string
+	pinger       storage.Pinger
+	deleter      DeleteService
+	auditEmitter *audit.Emitter
 }
 
-func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger, deleter DeleteService) *Handler {
-	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger, deleter: deleter}
+// New creates a new Handler with the given dependencies.
+func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger, deleter DeleteService, emitter *audit.Emitter) *Handler {
+	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger, deleter: deleter, auditEmitter: emitter}
 }
 
-
-
+// ShortenURL handles POST / — accepts a plain-text URL and returns its short form.
 func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
-	if err != nil || len(strings.TrimSpace(string(body))) == 0 {
+	if err != nil {
+		http.Error(w, "bad request: empty or invalid body", http.StatusBadRequest)
+		return
+	}
+	originalURL := string(bytes.TrimSpace(body))
+	if originalURL == "" {
 		http.Error(w, "bad request: empty or invalid body", http.StatusBadRequest)
 		return
 	}
 
-	originalURL := strings.TrimSpace(string(body))
 	id, err := h.repo.Save(middleware.UserID(r.Context()), originalURL)
 
 	var conflictErr *storage.ConflictError
 	if errors.As(err, &conflictErr) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusConflict)
-		fmt.Fprintf(w, "%s/%s", h.baseURL, conflictErr.ShortID)
+		if _, werr := io.WriteString(w, h.baseURL+"/"+conflictErr.ShortID); werr != nil {
+			log.Printf("ShortenURL: write conflict response: %v", werr)
+		}
 		return
 	}
 	if err != nil {
@@ -78,11 +88,13 @@ func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusCreated)
-	if _, err := fmt.Fprintf(w, "%s/%s", h.baseURL, id); err != nil {
-		log.Printf("ShortenURL: write response: %v", err)
+	if _, werr := io.WriteString(w, h.baseURL+"/"+id); werr != nil {
+		log.Printf("ShortenURL: write response: %v", werr)
 	}
+	h.auditEmitter.Emit(audit.Now("shorten", middleware.UserID(r.Context()), originalURL))
 }
 
+// ShortenURLJSON handles POST /api/shorten — accepts JSON {url} and returns JSON {result}.
 func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
 	var req shortenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.URL) == "" {
@@ -94,7 +106,7 @@ func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
 
 	var conflictErr *storage.ConflictError
 	if errors.As(err, &conflictErr) {
-		resp := shortenResponse{Result: fmt.Sprintf("%s/%s", h.baseURL, conflictErr.ShortID)}
+		resp := shortenResponse{Result: h.baseURL + "/" + conflictErr.ShortID}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
@@ -107,14 +119,16 @@ func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := shortenResponse{Result: fmt.Sprintf("%s/%s", h.baseURL, id)}
+	resp := shortenResponse{Result: h.baseURL + "/" + id}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("ShortenURLJSON: write response: %v", err)
 	}
+	h.auditEmitter.Emit(audit.Now("shorten", middleware.UserID(r.Context()), req.URL))
 }
 
+// Redirect handles GET /{id} — looks up the short ID and redirects to the original URL.
 func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -133,8 +147,10 @@ func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, originalURL, http.StatusTemporaryRedirect)
+	h.auditEmitter.Emit(audit.Now("follow", middleware.UserID(r.Context()), originalURL))
 }
 
+// ShortenBatch handles POST /api/shorten/batch — shortens multiple URLs in one request.
 func (h *Handler) ShortenBatch(w http.ResponseWriter, r *http.Request) {
 	var items []batchRequest
 	if err := json.NewDecoder(r.Body).Decode(&items); err != nil || len(items) == 0 {
@@ -160,7 +176,7 @@ func (h *Handler) ShortenBatch(w http.ResponseWriter, r *http.Request) {
 	for i, res := range results {
 		resp[i] = batchResponse{
 			CorrelationID: res.CorrelationID,
-			ShortURL:      fmt.Sprintf("%s/%s", h.baseURL, res.ShortID),
+			ShortURL:      h.baseURL + "/" + res.ShortID,
 		}
 	}
 
@@ -171,6 +187,7 @@ func (h *Handler) ShortenBatch(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetUserURLs handles GET /api/user/urls — returns all URLs shortened by the authenticated user.
 func (h *Handler) GetUserURLs(w http.ResponseWriter, r *http.Request) {
 	cookieInvalid, _ := r.Context().Value(middleware.CookieInvalidKey).(bool)
 	if cookieInvalid {
@@ -193,7 +210,7 @@ func (h *Handler) GetUserURLs(w http.ResponseWriter, r *http.Request) {
 	resp := make([]userURLResponse, len(urls))
 	for i, u := range urls {
 		resp[i] = userURLResponse{
-			ShortURL:    fmt.Sprintf("%s/%s", h.baseURL, u.ShortID),
+			ShortURL:    h.baseURL + "/" + u.ShortID,
 			OriginalURL: u.OriginalURL,
 		}
 	}
@@ -204,6 +221,7 @@ func (h *Handler) GetUserURLs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// DeleteUserURLs handles DELETE /api/user/urls — schedules deletion of the given short IDs.
 func (h *Handler) DeleteUserURLs(w http.ResponseWriter, r *http.Request) {
 	var ids []string
 	if err := json.NewDecoder(r.Body).Decode(&ids); err != nil || len(ids) == 0 {
@@ -221,6 +239,7 @@ func (h *Handler) DeleteUserURLs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Ping handles GET /ping — checks database connectivity.
 func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {
 	if h.pinger == nil {
 		http.Error(w, "database not configured", http.StatusInternalServerError)
