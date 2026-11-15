@@ -5,14 +5,19 @@ import (
 	"os"
 )
 
+// Config holds all runtime configuration for the shortener service.
+// Values are loaded from CLI flags, then overridden by environment variables.
 type Config struct {
 	ServerAddr      string
 	BaseURL         string
 	FileStoragePath string
 	DatabaseDSN     string
 	SecretKey       string
+	AuditFile       string
+	AuditURL        string
 }
 
+// New parses CLI flags (os.Args[1:]) and environment variables into a Config.
 func New() (*Config, error) {
 	return parse(os.Args[1:])
 }
@@ -25,6 +30,8 @@ func parse(args []string) (*Config, error) {
 	fs.StringVar(&cfg.FileStoragePath, "f", "urls.json", "path to file storage")
 	fs.StringVar(&cfg.DatabaseDSN, "d", "", "database DSN")
 	fs.StringVar(&cfg.SecretKey, "s", "default-secret-key", "secret key for cookie signing")
+	fs.StringVar(&cfg.AuditFile, "audit-file", "", "path to audit log file")
+	fs.StringVar(&cfg.AuditURL, "audit-url", "", "URL of remote audit receiver")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
@@ -33,6 +40,8 @@ func parse(args []string) (*Config, error) {
 	cfg.FileStoragePath = envOr("FILE_STORAGE_PATH", cfg.FileStoragePath)
 	cfg.DatabaseDSN = envOr("DATABASE_DSN", cfg.DatabaseDSN)
 	cfg.SecretKey = envOr("SECRET_KEY", cfg.SecretKey)
+	cfg.AuditFile = envOr("AUDIT_FILE", cfg.AuditFile)
+	cfg.AuditURL = envOr("AUDIT_URL", cfg.AuditURL)
 	return cfg, nil
 }
 

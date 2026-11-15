@@ -42,6 +42,7 @@ func cookieNamed(resp *http.Response, name string) *http.Cookie {
 func TestAuth_NoCookie_IssuesNewCookie(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	userID, invalid, resp := applyAuth(r)
+	defer resp.Body.Close()
 
 	if userID == "" {
 		t.Error("expected non-empty userID in context")
@@ -60,6 +61,7 @@ func TestAuth_ValidCookie_PreservesUserID(t *testing.T) {
 	r.AddCookie(&http.Cookie{Name: "user_id", Value: signedCookie(existingID)})
 
 	userID, invalid, resp := applyAuth(r)
+	defer resp.Body.Close()
 
 	if userID != existingID {
 		t.Errorf("expected userID %q, got %q", existingID, userID)
@@ -77,6 +79,7 @@ func TestAuth_InvalidCookie_MarksInvalidAndIssuesNew(t *testing.T) {
 	r.AddCookie(&http.Cookie{Name: "user_id", Value: "tampered|invalidsignature=="})
 
 	userID, invalid, resp := applyAuth(r)
+	defer resp.Body.Close()
 
 	if userID == "" {
 		t.Error("expected new userID to be generated")
@@ -93,7 +96,8 @@ func TestAuth_EmptyUserIDInCookie_MarksInvalid(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.AddCookie(&http.Cookie{Name: "user_id", Value: "|somesignature"})
 
-	_, invalid, _ := applyAuth(r)
+	_, invalid, resp := applyAuth(r)
+	defer resp.Body.Close()
 
 	if !invalid {
 		t.Error("expected cookieInvalid=true when cookie has empty user ID part")

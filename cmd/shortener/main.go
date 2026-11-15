@@ -12,6 +12,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
+	"url-shortener-practicum-go/internal/audit"
 	"url-shortener-practicum-go/internal/config"
 	"url-shortener-practicum-go/internal/deleter"
 	"url-shortener-practicum-go/internal/handlers"
@@ -64,7 +65,30 @@ func main() {
 	}
 
 	delSvc := deleter.New(repo, logger)
-	h := handlers.New(repo, cfg.BaseURL, pinger, delSvc)
+
+	// Create audit emitter (Observer pattern subject).
+	emitter := audit.NewEmitter()
+
+	// Add file listener if configured.
+	if cfg.AuditFile != "" {
+		fileListener, err := audit.NewFileListener(cfg.AuditFile)
+		if err != nil {
+			logger.Fatal("Failed to create audit file listener", zap.Error(err))
+		}
+		defer fileListener.Close()
+		emitter.AddListener(fileListener)
+		logger.Info("Audit file listener enabled", zap.String("path", cfg.AuditFile))
+	}
+
+	// Add HTTP listener if configured.
+	var httpListener *audit.HTTPListener
+	if cfg.AuditURL != "" {
+		httpListener = audit.NewHTTPListener(cfg.AuditURL)
+		emitter.AddListener(httpListener)
+		logger.Info("Audit HTTP listener enabled", zap.String("url", cfg.AuditURL))
+	}
+
+	h := handlers.New(repo, cfg.BaseURL, pinger, delSvc, emitter)
 	router := server.NewRouter(h, logger, cfg.SecretKey)
 
 	srv := &http.Server{
@@ -94,6 +118,9 @@ func main() {
 
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error("HTTP server shutdown error", zap.Error(err))
+	}
+	if httpListener != nil {
+		httpListener.Close()
 	}
 
 	delCtx, delCancel := context.WithTimeout(context.Background(), 15*time.Second)

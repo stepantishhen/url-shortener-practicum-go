@@ -39,8 +39,8 @@ func (m *mockRepo) get(userID string) []string {
 	return cp
 }
 
-func (m *mockRepo) Save(_, _ string) (string, error)                          { return "", nil }
-func (m *mockRepo) Get(_ string) (string, bool, bool)                         { return "", false, false }
+func (m *mockRepo) Save(_, _ string) (string, error)  { return "", nil }
+func (m *mockRepo) Get(_ string) (string, bool, bool) { return "", false, false }
 func (m *mockRepo) SaveBatch(_ string, _ []storage.BatchInput) ([]storage.BatchOutput, error) {
 	return nil, nil
 }
@@ -142,8 +142,8 @@ func (m *slowMockRepo) DeleteBatch(userID string, ids []string) error {
 	return nil
 }
 
-func (m *slowMockRepo) Save(_, _ string) (string, error)                          { return "", nil }
-func (m *slowMockRepo) Get(_ string) (string, bool, bool)                         { return "", false, false }
+func (m *slowMockRepo) Save(_, _ string) (string, error)  { return "", nil }
+func (m *slowMockRepo) Get(_ string) (string, bool, bool) { return "", false, false }
 func (m *slowMockRepo) SaveBatch(_ string, _ []storage.BatchInput) ([]storage.BatchOutput, error) {
 	return nil, nil
 }
