@@ -7,14 +7,6 @@ import (
 	"sync"
 )
 
-// idBufPool reuses 6-byte random buffers to reduce GC pressure in generateID.
-var idBufPool = sync.Pool{
-	New: func() any {
-		var b [6]byte
-		return &b
-	},
-}
-
 // MemoryStorage is an in-memory implementation of URLRepository.
 type MemoryStorage struct {
 	mu      sync.RWMutex
@@ -114,15 +106,11 @@ func (m *MemoryStorage) DeleteBatch(userID string, ids []string) error {
 func (m *MemoryStorage) PingContext(_ context.Context) error { return nil }
 
 // generateID returns a random 8-character URL-safe base64 string.
-// The source byte buffer is pooled to reduce GC pressure.
 func generateID() (string, error) {
-	bp := idBufPool.Get().(*[6]byte)
-	_, err := rand.Read(bp[:])
+	var b [6]byte
+	_, err := rand.Read(b[:])
 	if err != nil {
-		idBufPool.Put(bp)
 		return "", err
 	}
-	result := base64.URLEncoding.EncodeToString(bp[:])
-	idBufPool.Put(bp)
-	return result, nil
+	return base64.URLEncoding.EncodeToString(b[:]), nil
 }

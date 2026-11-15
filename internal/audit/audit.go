@@ -55,6 +55,11 @@ func (e *Emitter) Emit(event Event) {
 	}
 }
 
+// Record creates and emits an audit event.
+func (e *Emitter) Record(action, userID, url string) {
+	e.Emit(NewEvent(action, userID, url))
+}
+
 // FileListener writes audit events to a file, one JSON per line.
 type FileListener struct {
 	file *os.File
@@ -92,21 +97,52 @@ func (fl *FileListener) Close() error {
 type HTTPListener struct {
 	client *http.Client
 	url    string
+	queue  chan Event
+	done   chan struct{}
+	mu     sync.Mutex
+	closed bool
 }
 
 // NewHTTPListener creates a new HTTP listener that POSTs events to the given URL.
 func NewHTTPListener(url string) *HTTPListener {
-	return &HTTPListener{
+	hl := &HTTPListener{
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		url: url,
+		url:   url,
+		queue: make(chan Event, 100),
+		done:  make(chan struct{}),
 	}
+	go hl.run()
+	return hl
 }
 
-// Notify sends the event as a JSON POST request asynchronously.
+// Notify queues an event for delivery by the listener's worker.
 func (hl *HTTPListener) Notify(event Event) {
-	go hl.send(event)
+	hl.mu.Lock()
+	defer hl.mu.Unlock()
+	if hl.closed {
+		return
+	}
+	hl.queue <- event
+}
+
+// Close stops accepting events and waits for all queued events to be delivered.
+func (hl *HTTPListener) Close() {
+	hl.mu.Lock()
+	if !hl.closed {
+		hl.closed = true
+		close(hl.queue)
+	}
+	hl.mu.Unlock()
+	<-hl.done
+}
+
+func (hl *HTTPListener) run() {
+	defer close(hl.done)
+	for event := range hl.queue {
+		hl.send(event)
+	}
 }
 
 func (hl *HTTPListener) send(event Event) {
@@ -133,8 +169,8 @@ func (hl *HTTPListener) send(event Event) {
 	io.Copy(io.Discard, resp.Body)
 }
 
-// Now creates an audit event with the current timestamp.
-func Now(action, userID, url string) Event {
+// NewEvent creates an audit event with the current timestamp.
+func NewEvent(action, userID, url string) Event {
 	return Event{
 		Timestamp: time.Now().Unix(),
 		Action:    action,

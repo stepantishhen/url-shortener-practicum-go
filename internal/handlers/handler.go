@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi"
-	"url-shortener-practicum-go/internal/audit"
 	"url-shortener-practicum-go/internal/middleware"
 	"url-shortener-practicum-go/internal/storage"
 )
@@ -18,6 +17,10 @@ import (
 // DeleteService is the interface for submitting async URL deletions.
 type DeleteService interface {
 	Submit(userID string, ids []string)
+}
+
+type auditRecorder interface {
+	Record(action, userID, url string)
 }
 
 type shortenRequest struct {
@@ -49,11 +52,11 @@ type Handler struct {
 	baseURL      string
 	pinger       storage.Pinger
 	deleter      DeleteService
-	auditEmitter *audit.Emitter
+	auditEmitter auditRecorder
 }
 
 // New creates a new Handler with the given dependencies.
-func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger, deleter DeleteService, emitter *audit.Emitter) *Handler {
+func New(repo storage.URLRepository, baseURL string, pinger storage.Pinger, deleter DeleteService, emitter auditRecorder) *Handler {
 	return &Handler{repo: repo, baseURL: baseURL, pinger: pinger, deleter: deleter, auditEmitter: emitter}
 }
 
@@ -91,7 +94,7 @@ func (h *Handler) ShortenURL(w http.ResponseWriter, r *http.Request) {
 	if _, werr := io.WriteString(w, h.baseURL+"/"+id); werr != nil {
 		log.Printf("ShortenURL: write response: %v", werr)
 	}
-	h.auditEmitter.Emit(audit.Now("shorten", middleware.UserID(r.Context()), originalURL))
+	h.auditEmitter.Record("shorten", middleware.UserID(r.Context()), originalURL)
 }
 
 // ShortenURLJSON handles POST /api/shorten — accepts JSON {url} and returns JSON {result}.
@@ -125,7 +128,7 @@ func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("ShortenURLJSON: write response: %v", err)
 	}
-	h.auditEmitter.Emit(audit.Now("shorten", middleware.UserID(r.Context()), req.URL))
+	h.auditEmitter.Record("shorten", middleware.UserID(r.Context()), req.URL)
 }
 
 // Redirect handles GET /{id} — looks up the short ID and redirects to the original URL.
@@ -147,7 +150,7 @@ func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, originalURL, http.StatusTemporaryRedirect)
-	h.auditEmitter.Emit(audit.Now("follow", middleware.UserID(r.Context()), originalURL))
+	h.auditEmitter.Record("follow", middleware.UserID(r.Context()), originalURL)
 }
 
 // ShortenBatch handles POST /api/shorten/batch — shortens multiple URLs in one request.

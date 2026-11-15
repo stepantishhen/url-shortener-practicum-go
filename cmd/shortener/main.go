@@ -81,8 +81,9 @@ func main() {
 	}
 
 	// Add HTTP listener if configured.
+	var httpListener *audit.HTTPListener
 	if cfg.AuditURL != "" {
-		httpListener := audit.NewHTTPListener(cfg.AuditURL)
+		httpListener = audit.NewHTTPListener(cfg.AuditURL)
 		emitter.AddListener(httpListener)
 		logger.Info("Audit HTTP listener enabled", zap.String("url", cfg.AuditURL))
 	}
@@ -117,6 +118,9 @@ func main() {
 
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error("HTTP server shutdown error", zap.Error(err))
+	}
+	if httpListener != nil {
+		httpListener.Close()
 	}
 
 	delCtx, delCancel := context.WithTimeout(context.Background(), 15*time.Second)

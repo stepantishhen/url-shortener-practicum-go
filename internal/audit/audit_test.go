@@ -8,7 +8,6 @@ import (
 	"os"
 	"sync"
 	"testing"
-	"time"
 )
 
 func TestEmitter_NoListeners(t *testing.T) {
@@ -147,10 +146,10 @@ func TestFileListener_Append(t *testing.T) {
 	}
 }
 
-func TestNow(t *testing.T) {
+func TestNewEvent(t *testing.T) {
 	var before int64
 	for i := 0; i < 10; i++ {
-		e := Now("shorten", "user1", "https://example.com")
+		e := NewEvent("shorten", "user1", "https://example.com")
 		if e.Timestamp < before {
 			t.Errorf("timestamp should not decrease: %d < %d", e.Timestamp, before)
 		}
@@ -176,7 +175,7 @@ func (m *mockListener) Notify(e Event) {
 }
 
 func TestHTTPListener_Success(t *testing.T) {
-	var received Event
+	received := make(chan Event, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
@@ -188,9 +187,11 @@ func TestHTTPListener_Success(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to read request body: %v", err)
 		}
-		if err := json.Unmarshal(body, &received); err != nil {
+		var event Event
+		if err := json.Unmarshal(body, &event); err != nil {
 			t.Fatalf("failed to unmarshal: %v", err)
 		}
+		received <- event
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -198,27 +199,24 @@ func TestHTTPListener_Success(t *testing.T) {
 	hl := NewHTTPListener(server.URL)
 	event := Event{Action: "shorten", UserID: "user1", URL: "https://example.com"}
 	hl.Notify(event)
-
-	// Notify is async, wait for the goroutine to finish.
-	time.Sleep(100 * time.Millisecond)
-
-	if received.Action != "shorten" {
-		t.Errorf("expected action 'shorten', got %q", received.Action)
+	hl.Close()
+	got := <-received
+	if got.Action != "shorten" {
+		t.Errorf("expected action 'shorten', got %q", got.Action)
 	}
-	if received.UserID != "user1" {
-		t.Errorf("expected user_id 'user1', got %q", received.UserID)
+	if got.UserID != "user1" {
+		t.Errorf("expected user_id 'user1', got %q", got.UserID)
 	}
-	if received.URL != "https://example.com" {
-		t.Errorf("expected URL 'https://example.com', got %q", received.URL)
+	if got.URL != "https://example.com" {
+		t.Errorf("expected URL 'https://example.com', got %q", got.URL)
 	}
 }
 
 func TestHTTPListener_ConnectionRefused(t *testing.T) {
-	// Use a URL that will definitely fail to connect.
-	hl := NewHTTPListener("http://127.0.0.1:1")
+	// Use a URL that fails before opening a network connection.
+	hl := NewHTTPListener("://invalid")
 	event := Event{Action: "follow", URL: "https://example.com"}
 
-	// Should not panic; error should be logged.
 	hl.Notify(event)
-	time.Sleep(100 * time.Millisecond)
+	hl.Close()
 }
