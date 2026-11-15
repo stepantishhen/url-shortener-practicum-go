@@ -1,3 +1,4 @@
+// Package server constructs the HTTP router and registers service middleware and handlers.
 package server
 
 import (

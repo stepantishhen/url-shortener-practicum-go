@@ -101,7 +101,7 @@ func TestFileStorageJSONFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	const userID = "user1"
-	if _, err := fs.Save(userID, "http://example.com"); err != nil {
+	if _, err = fs.Save(userID, "http://example.com"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -110,7 +110,7 @@ func TestFileStorageJSONFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	var records []record
-	if err := json.Unmarshal(data, &records); err != nil {
+	if err = json.Unmarshal(data, &records); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 	if len(records) != 1 {
@@ -142,7 +142,7 @@ func TestFileStorageUUIDIncrement(t *testing.T) {
 	}
 	const userID = "user1"
 	for range 3 {
-		if _, err := fs.Save(userID, "http://example.com"); err != nil {
+		if _, err = fs.Save(userID, "http://example.com"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -152,7 +152,7 @@ func TestFileStorageUUIDIncrement(t *testing.T) {
 		t.Fatal(err)
 	}
 	var records []record
-	if err := json.Unmarshal(data, &records); err != nil {
+	if err = json.Unmarshal(data, &records); err != nil {
 		t.Fatal(err)
 	}
 	seen := make(map[string]bool, len(records))

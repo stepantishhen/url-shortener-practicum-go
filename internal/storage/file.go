@@ -1,3 +1,4 @@
+// Package storage provides in-memory, file-based, and PostgreSQL URL repositories.
 package storage
 
 import (

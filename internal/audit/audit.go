@@ -1,3 +1,4 @@
+// Package audit records URL shortening and redirect events for configured listeners.
 package audit
 
 import (

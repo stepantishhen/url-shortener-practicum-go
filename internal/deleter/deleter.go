@@ -1,3 +1,4 @@
+// Package deleter batches and asynchronously processes URL deletion requests.
 package deleter
 
 import (
