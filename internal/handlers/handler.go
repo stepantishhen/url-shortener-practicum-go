@@ -1,3 +1,4 @@
+// Package handlers implements the URL shortener's HTTP endpoints.
 package handlers
 
 import (
@@ -112,7 +113,7 @@ func (h *Handler) ShortenURLJSON(w http.ResponseWriter, r *http.Request) {
 		resp := shortenResponse{Result: h.baseURL + "/" + conflictErr.ShortID}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
+		if err = json.NewEncoder(w).Encode(resp); err != nil {
 			log.Printf("ShortenURLJSON: write conflict response: %v", err)
 		}
 		return

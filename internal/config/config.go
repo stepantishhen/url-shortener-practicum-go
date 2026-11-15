@@ -1,3 +1,4 @@
+// Package config parses service settings from command-line flags and environment variables.
 package config
 
 import (
